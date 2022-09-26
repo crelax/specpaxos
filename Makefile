@@ -6,7 +6,7 @@ CC = gcc
 CXX = g++
 LD = g++
 
-CFLAGS := -g -Wall -pthread -iquote.obj/gen -Wno-uninitialized
+CFLAGS := -g -Wall -pthread -iquote.obj/gen -Wno-uninitialized -DNASSERT
 CXXFLAGS := -std=c++0x
 LDFLAGS := -levent_pthreads -ldl
 ## Debian package: check
@@ -43,7 +43,7 @@ LDFLAGS += $(LIBUNWIND_LDFLAGS)
 GTEST_DIR := /usr/src/gtest
 
 # Additional flags
-PARANOID = 1
+PARANOID = 0
 ifneq ($(PARANOID),0)
 override CFLAGS += -DPARANOID=1
 $(info WARNING: Paranoid mode enabled)
