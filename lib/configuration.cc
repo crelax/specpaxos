@@ -86,7 +86,7 @@ Configuration::Configuration(std::ifstream &file)
     while (!file.eof()) {
         // Read a line
         string line;
-        getline(file, line);;
+        getline(file, line);
 
         // Ignore comments
         if ((line.size() == 0) || (line[0] == '#')) {
