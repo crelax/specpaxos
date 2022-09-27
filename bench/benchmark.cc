@@ -143,7 +143,7 @@ BenchmarkClient::OnReply(const string &request, const string &reply)
        SendNext();
     } else {
         uint64_t rdelay = uniform(re);
-        std::cout<< rdelay<<"\n";
+        // std::cout<< rdelay<<"\n";
         transport.Timer(rdelay,
                         std::bind(&BenchmarkClient::SendNext, this));
     }
