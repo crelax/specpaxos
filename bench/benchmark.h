@@ -32,12 +32,14 @@
 #include "lib/latency.h"
 #include "lib/transport.h"
 
+#include <random>
+
 namespace specpaxos {
     
 class BenchmarkClient
 {
 public:
-    BenchmarkClient(Client &client, Transport &transport,
+    BenchmarkClient(int index, Client &client, Transport &transport,
                     int numRequests, uint64_t delay,
                     int warmupSec,
                     string latencyFilename = "");
@@ -63,6 +65,9 @@ private:
     struct timeval startTime;
     struct timeval endTime;
     string latencyFilename;
+
+    std::default_random_engine re{};
+    std::uniform_int_distribution<> uniform;
 };
 
 } // namespace specpaxos

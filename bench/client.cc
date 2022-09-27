@@ -65,6 +65,7 @@ int main(int argc, char **argv)
     int numRequests = 100;
     int warmupSec = 0;
     int dscp = 0;
+    int index = 0;
     uint64_t delay = 0;
     
     enum
@@ -80,11 +81,23 @@ int main(int argc, char **argv)
 
     // Parse arguments
     int opt;
-    while ((opt = getopt(argc, argv, "c:d:q:l:m:n:t:w:")) != -1) {
+    while ((opt = getopt(argc, argv, "c:d:q:l:m:n:t:w:i:")) != -1) {
         switch (opt) {
         case 'c':
             configPath = optarg;
             break;
+        case 'i':
+        {
+            char *strtolPtr;
+            index = strtoul(optarg, &strtolPtr, 10);
+            if ((*optarg == '\0') || (*strtolPtr != '\0') )
+            {
+                fprintf(stderr,
+                        "option -i requires a numeric arg\n");
+                Usage(argv[0]);
+            }
+            break;
+        }
 
         case 'd':
         {
@@ -231,7 +244,7 @@ int main(int argc, char **argv)
         }
 
         specpaxos::BenchmarkClient *bench =
-            new specpaxos::BenchmarkClient(*client, transport,
+            new specpaxos::BenchmarkClient(i * (numRequests-1) + index, *client, transport,
                                            numRequests, delay,
                                            warmupSec);
 
