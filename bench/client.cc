@@ -219,7 +219,7 @@ int main(int argc, char **argv)
 
     for (int i = 0; i < numClients; i++) {
         int cid = index * numClients + i;
-        Notice("Client ID %d.", cid);
+        QNotice("Client ID %d.", cid);
         specpaxos::Client *client;
         switch (proto) {
         case PROTO_UNREPLICATED:
@@ -229,7 +229,7 @@ int main(int argc, char **argv)
             break;
         
         case PROTO_VR:
-            client = new specpaxos::vr::VRClient(config, &transport, cid);
+            client = new specpaxos::vr::VRClient(config, &transport, cid * -1);
             break;
 
         case PROTO_FASTPAXOS:
