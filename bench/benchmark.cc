@@ -44,7 +44,7 @@ namespace specpaxos {
     
 DEFINE_LATENCY(op);
 
-BenchmarkClient::BenchmarkClient(int idx, Client &client, Transport &transport,
+BenchmarkClient::BenchmarkClient(int cid, Client &client, Transport &transport,
                                  int numRequests, uint64_t delay,
                                  int warmupSec,
                                  string latencyFilename)
@@ -54,7 +54,7 @@ BenchmarkClient::BenchmarkClient(int idx, Client &client, Transport &transport,
 {
     if (delay != 0) {
         Notice("Delay between requests: %" PRIu64 " ms", delay);
-        re.seed(idx);
+        re.seed(cid);
         uniform = std::uniform_int_distribution<>{0, static_cast<int>(delay*2)};
     }
     started = false;

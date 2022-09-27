@@ -218,6 +218,8 @@ int main(int argc, char **argv)
     std::vector<specpaxos::BenchmarkClient *> benchClients;
 
     for (int i = 0; i < numClients; i++) {
+        int cid = index * numClients + i;
+        Notice("Client ID %d.", cid);
         specpaxos::Client *client;
         switch (proto) {
         case PROTO_UNREPLICATED:
@@ -227,7 +229,7 @@ int main(int argc, char **argv)
             break;
         
         case PROTO_VR:
-            client = new specpaxos::vr::VRClient(config, &transport);
+            client = new specpaxos::vr::VRClient(config, &transport, cid);
             break;
 
         case PROTO_FASTPAXOS:
@@ -244,7 +246,7 @@ int main(int argc, char **argv)
         }
 
         specpaxos::BenchmarkClient *bench =
-            new specpaxos::BenchmarkClient(i * (numRequests-1) + index, *client, transport,
+            new specpaxos::BenchmarkClient(cid, *client, transport,
                                            numRequests, delay,
                                            warmupSec);
 
