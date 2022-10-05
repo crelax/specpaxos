@@ -243,7 +243,11 @@ main(int argc, char **argv)
     default:
         NOT_REACHABLE();
     }
-    
+
+    cpu_set_t m;
+    CPU_ZERO(&m);
+    CPU_SET(0, &m);
+
     transport.Run();
 
     delete replica;

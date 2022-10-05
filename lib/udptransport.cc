@@ -180,6 +180,9 @@ UDPTransport::UDPTransport(double dropRate, double reorderRate,
     lastTimerId = 0;
     lastFragMsgId = 0;
 
+    lastcpu = 0;
+    cpunum = std::thread::hardware_concurrency();
+
     uniformDist = std::uniform_real_distribution<double>(0.0, 1.0);
     randomEngine.seed(time(NULL));
     reorderBuffer.valid = false;
@@ -750,7 +753,11 @@ UDPTransport::SignalCallback(evutil_socket_t fd, short what, void *arg) {
     event_base_loopbreak(transport->libeventBase);
 }
 
-bool __SendMessageInternal(int fd, char *buf, size_t msgLen, sockaddr_in sin) {
+bool __SendMessageInternal(int cpu, int fd, char *buf, size_t msgLen, sockaddr_in sin) {
+    cpu_set_t m;
+    CPU_ZERO(&m);
+    CPU_SET(cpu, &m);
+
     if (sendto(fd, buf, msgLen, 0,
                (sockaddr *) &sin, sizeof(sin)) < 0) {
         PWarning("Failed to send message");
@@ -765,8 +772,12 @@ bool __SendMessageInternal(int fd, char *buf, size_t msgLen, sockaddr_in sin) {
     return false;
 }
 
-bool __SendMessageInternalLarge(int fd, char *buf, size_t msgLen,
+bool __SendMessageInternalLarge(int cpu, int fd, char *buf, size_t msgLen,
                                 sockaddr_in sin, uint64_t msgId) {
+    cpu_set_t m;
+    CPU_ZERO(&m);
+    CPU_SET(cpu, &m);
+
     msgLen -= sizeof(uint32_t);
     char *bodyStart = buf + sizeof(uint32_t);
     int numFrags = ((msgLen - 1) / MAX_UDP_MESSAGE_SIZE) + 1;
@@ -812,15 +823,15 @@ UDPTransport::SendMessageInternal(TransportReceiver *src,
     // Serialize message
     char *buf;
     size_t msgLen = SerializeMessage(m, &buf);
-
+    lastcpu = (lastcpu + 1) % cpunum + 1;
     int fd = fds[src];
 
     if (msgLen <= MAX_UDP_MESSAGE_SIZE) {
-        std::async(__SendMessageInternal, fd, buf, msgLen,
+        std::async(__SendMessageInternal, lastcpu, fd, buf, msgLen,
                    dynamic_cast<const UDPTransportAddress &>(dst).addr);
     } else {
         uint64_t msgId = ++lastFragMsgId;
-        std::async(__SendMessageInternalLarge, fd, buf, msgLen,
+        std::async(__SendMessageInternalLarge, lastcpu, fd, buf, msgLen,
                    dynamic_cast<const UDPTransportAddress &>(dst).addr, msgId);
     }
 

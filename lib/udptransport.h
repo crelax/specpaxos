@@ -109,6 +109,8 @@ private:
     int lastTimerId;
     std::map<int, UDPTransportTimerInfo *> timers;
     uint64_t lastFragMsgId;
+    int lastcpu;
+    int cpunum;
     struct UDPTransportFragInfo
     {
         uint64_t msgId;
