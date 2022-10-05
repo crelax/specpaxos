@@ -816,12 +816,12 @@ UDPTransport::SendMessageInternal(TransportReceiver *src,
     int fd = fds[src];
 
     if (msgLen <= MAX_UDP_MESSAGE_SIZE) {
-        std::async(__SendMessageInternal, fd, buf, msgLen,
-                   dynamic_cast<const UDPTransportAddress &>(dst).addr);
+        __SendMessageInternal(fd, buf, msgLen,
+                              dynamic_cast<const UDPTransportAddress &>(dst).addr);
     } else {
         uint64_t msgId = ++lastFragMsgId;
-        std::async(__SendMessageInternalLarge, fd, buf, msgLen,
-                   dynamic_cast<const UDPTransportAddress &>(dst).addr, msgId);
+        __SendMessageInternalLarge(fd, buf, msgLen,
+                              dynamic_cast<const UDPTransportAddress &>(dst).addr, msgId);
     }
 
     return true;
