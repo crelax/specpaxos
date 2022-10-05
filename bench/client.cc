@@ -67,7 +67,7 @@ int main(int argc, char **argv)
     int dscp = 0;
     int index = 0;
     uint64_t delay = 0;
-    
+
     enum
     {
         PROTO_UNKNOWN,
@@ -129,7 +129,7 @@ int main(int argc, char **argv)
         case 'l':
             latencyFile = string(optarg);
             break;
-            
+
         case 'm':
             if (strcasecmp(optarg, "unreplicated") == 0) {
                 proto = PROTO_UNREPLICATED;
@@ -212,10 +212,12 @@ int main(int argc, char **argv)
         Usage(argv[0]);
     }
     specpaxos::Configuration config(configStream);
-    
+
     UDPTransport transport(0, 0, dscp);
     std::vector<specpaxos::Client *> clients;
     std::vector<specpaxos::BenchmarkClient *> benchClients;
+    time_t t;
+    srand((unsigned) time(&t));
 
     for (int i = 0; i < numClients; i++) {
         int cid = index * numClients + i;
@@ -227,9 +229,9 @@ int main(int argc, char **argv)
                 new specpaxos::unreplicated::UnreplicatedClient(config,
                                                                 &transport);
             break;
-        
+
         case PROTO_VR:
-            client = new specpaxos::vr::VRClient(config, &transport, cid);
+            client = new specpaxos::vr::VRClient(config, &transport, cid + rand() % 10007);
             break;
 
         case PROTO_FASTPAXOS:
@@ -240,7 +242,7 @@ int main(int argc, char **argv)
         case PROTO_SPEC:
             client = new specpaxos::spec::SpecClient(config, &transport);
             break;
-        
+
         default:
             NOT_REACHABLE();
         }
@@ -286,6 +288,6 @@ int main(int argc, char **argv)
             exit(0);
         });
     checkTimeout.Start();
-    
+
     transport.Run();
 }
