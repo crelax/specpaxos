@@ -181,7 +181,7 @@ UDPTransport::UDPTransport(double dropRate, double reorderRate,
     lastFragMsgId = 0;
 
     lastcpu = 0;
-    cpunum = std::thread::hardware_concurrency();
+    cpunum = std::thread::hardware_concurrency() - 1;
 
     uniformDist = std::uniform_real_distribution<double>(0.0, 1.0);
     randomEngine.seed(time(NULL));
