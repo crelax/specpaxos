@@ -44,6 +44,7 @@
 #include <unordered_map>
 #include <random>
 #include <netinet/in.h>
+#include <future>
 
 class UDPTransportAddress : public TransportAddress
 {
@@ -118,6 +119,11 @@ private:
     bool SendMessageInternal(TransportReceiver *src,
                              const UDPTransportAddress &dst,
                              const Message &m, bool multicast = false);
+
+    bool SendMessageInternalT(TransportReceiver *src,
+                             const UDPTransportAddress &dst,
+                             const Message &m, bool multicast = false);
+
     UDPTransportAddress
     LookupAddress(const specpaxos::ReplicaAddress &addr);
     UDPTransportAddress
