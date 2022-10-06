@@ -216,14 +216,15 @@ static void __worker(int fd, size_t msgLen, char *buf,
     delete [] buf;
 }
 
-void worker(int cpu, moodycamel::ConcurrentQueue<SendTask> &taskq) {
+void worker(int cpu, moodycamel::BlockingConcurrentQueue<SendTask> &taskq) {
     cpu_set_t m;
     CPU_ZERO(&m);
     CPU_SET(cpu, &m);
     pthread_setaffinity_np(pthread_self(), sizeof(m), &m);
     SendTask t;
     while (true) {
-        if (taskq.try_dequeue(t)) {
+        taskq.wait_dequeue(t);
+        {
             if (t.fd < 0)  {
                 Notice("%d, Received to close", cpu);
                 break;

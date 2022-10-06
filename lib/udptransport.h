@@ -35,7 +35,7 @@
 #include "lib/configuration.h"
 #include "lib/transport.h"
 #include "lib/transportcommon.h"
-#include "concurrentqueue.h"
+#include "blockingconcurrentqueue.h"
 
 #include <event2/event.h>
 
@@ -128,7 +128,7 @@ private:
     };
     std::map<UDPTransportAddress, UDPTransportFragInfo> fragInfo;
 
-    moodycamel::ConcurrentQueue<SendTask> taskq;
+    moodycamel::BlockingConcurrentQueue<SendTask> taskq;
     std::vector<std::thread> pool;
 
     bool SendMessageInternal(TransportReceiver *src,
