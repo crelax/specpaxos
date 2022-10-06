@@ -172,8 +172,9 @@ BindToPort(int fd, const string &host, const string &port) {
     }
 }
 
-static void __worker(int fd, size_t msgLen, char *buf,
+static void __worker(int fd, size_t msgLen, void *vbuf,
                      const sockaddr_in *sin, uint64_t msgId) {
+    char *buf = (char*) vbuf;
     if (msgLen <= MAX_UDP_MESSAGE_SIZE) {
         if (sendto(fd, buf, msgLen, 0,
                    (sockaddr *) sin, sizeof(*sin)) < 0) {
@@ -838,7 +839,7 @@ UDPTransport::SendMessageInternal(TransportReceiver *src,
     if (msgLen > MAX_UDP_MESSAGE_SIZE) {
         msgId = ++ lastFragMsgId;
     }
-    taskq.enqueue(SendTask{fd, msgLen, buf, &(dst.addr), msgId});
+    taskq.enqueue(SendTask{fd, msgLen, (void *)buf, &(dst.addr), msgId});
     return true;
 }
 
@@ -846,6 +847,6 @@ void UDPTransport::JoinWorkers() {
     for (auto i = 0; i < pool.size(); i++)
         taskq.enqueue(SendTask{fd:-1});
     for (auto& t : pool) {
-//        t.join();
+        t.join();
     }
 }

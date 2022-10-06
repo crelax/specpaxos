@@ -66,7 +66,7 @@ private:
 struct SendTask{
     int fd;
     size_t msgLen;
-    char *buf;
+    void *buf;
     const sockaddr_in *sin;
     uint64_t msgId;
 };
