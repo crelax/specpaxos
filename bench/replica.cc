@@ -61,6 +61,7 @@ main(int argc, char **argv)
     int dscp = 0;
     int batchSize = 1;
     bool recover;
+    int sendtnum = 1;
     
     specpaxos::AppReplica *nullApp = new specpaxos::AppReplica();
 
@@ -75,7 +76,7 @@ main(int argc, char **argv)
 
     // Parse arguments
     int opt;
-    while ((opt = getopt(argc, argv, "b:c:d:i:m:q:r:R")) != -1) {
+    while ((opt = getopt(argc, argv, "b:c:d:i:m:q:r:t:R")) != -1) {
         switch (opt) {
         case 'b':
         {
@@ -116,6 +117,19 @@ main(int argc, char **argv)
             {
                 fprintf(stderr,
                         "option -i requires a numeric arg\n");
+                Usage(argv[0]);
+            }
+            break;
+        }
+
+        case 't':
+        {
+            char *strtolPtr;
+            sendtnum = strtoul(optarg, &strtolPtr, 10);
+            if ((*optarg == '\0') || (*strtolPtr != '\0') || (sendtnum <= 0))
+            {
+                fprintf(stderr,
+                        "option -t requires a numeric arg\n");
                 Usage(argv[0]);
             }
             break;
@@ -205,7 +219,7 @@ main(int argc, char **argv)
         Usage(argv[0]);
     }
     
-    UDPTransport transport(dropRate, reorderRate, dscp);
+    UDPTransport transport(dropRate, reorderRate, dscp, sendtnum);
 
     specpaxos::Replica *replica;
     switch (proto) {
@@ -247,6 +261,7 @@ main(int argc, char **argv)
     cpu_set_t m;
     CPU_ZERO(&m);
     CPU_SET(0, &m);
+    pthread_setaffinity_np(pthread_self(), sizeof(m), &m);
 
     transport.Run();
 

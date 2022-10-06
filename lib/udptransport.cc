@@ -172,16 +172,75 @@ BindToPort(int fd, const string &host, const string &port) {
     }
 }
 
+static void __worker(int fd, size_t msgLen, char *buf,
+                     const sockaddr_in *sin, uint64_t msgId) {
+    if (msgLen <= MAX_UDP_MESSAGE_SIZE) {
+        if (sendto(fd, buf, msgLen, 0,
+                   (sockaddr *) sin, sizeof(*sin)) < 0) {
+            PWarning("Failed to send message");
+            goto out;
+        }
+    } else {
+        msgLen -= sizeof(uint32_t);
+        char *bodyStart = buf + sizeof(uint32_t);
+        int numFrags = ((msgLen - 1) / MAX_UDP_MESSAGE_SIZE) + 1;
+        Notice("Sending large message in %d fragments", numFrags);
+
+        for (size_t fragStart = 0; fragStart < msgLen;
+             fragStart += MAX_UDP_MESSAGE_SIZE) {
+            size_t fragLen = std::min(msgLen - fragStart,
+                                      MAX_UDP_MESSAGE_SIZE);
+            size_t fragHeaderLen = 2*sizeof(size_t) + sizeof(uint64_t) + sizeof(uint32_t);
+            char fragBuf[fragLen + fragHeaderLen];
+            char *ptr = fragBuf;
+            *((uint32_t *)ptr) = FRAG_MAGIC;
+            ptr += sizeof(uint32_t);
+            *((uint64_t *)ptr) = msgId;
+            ptr += sizeof(uint64_t);
+            *((size_t *)ptr) = fragStart;
+            ptr += sizeof(size_t);
+            *((size_t *)ptr) = msgLen;
+            ptr += sizeof(size_t);
+            memcpy(ptr, &bodyStart[fragStart], fragLen);
+
+            if (sendto(fd, fragBuf, fragLen + fragHeaderLen, 0,
+                       (sockaddr *)sin, sizeof(*sin)) < 0) {
+                PWarning("Failed to send message fragment %ld",
+                         fragStart);
+                goto out;
+            }
+        }
+    }
+
+    out:
+    delete [] buf;
+}
+
+void worker(int cpu, moodycamel::ConcurrentQueue<SendTask> &taskq) {
+    cpu_set_t m;
+    CPU_ZERO(&m);
+    CPU_SET(cpu, &m);
+    pthread_setaffinity_np(pthread_self(), sizeof(m), &m);
+    SendTask t;
+    while (true) {
+        if (taskq.try_dequeue(t)) {
+            if (t.fd < 0)
+                break;
+            std::thread(__worker, t.fd, t.msgLen, t.buf, t.sin, t.msgId).detach();
+        }
+    }
+}
+
 UDPTransport::UDPTransport(double dropRate, double reorderRate,
-                           int dscp, event_base *evbase)
+                           int dscp, int sendtnum, event_base *evbase)
         : dropRate(dropRate), reorderRate(reorderRate),
-          dscp(dscp) {
+          dscp(dscp), sendtnum(sendtnum) {
 
     lastTimerId = 0;
     lastFragMsgId = 0;
 
     lastcpu = 0;
-    cpunum = std::thread::hardware_concurrency() - 1;
+    cpunum = std::thread::hardware_concurrency();
 
     uniformDist = std::uniform_real_distribution<double>(0.0, 1.0);
     randomEngine.seed(time(NULL));
@@ -214,6 +273,11 @@ UDPTransport::UDPTransport(double dropRate, double reorderRate,
                                         SignalCallback, this));
     for (event *x: signalEvents) {
         event_add(x, NULL);
+    }
+
+    sendtnum = std::max(1, std::min(cpunum - 1, sendtnum));
+    for (int i = 0; i < sendtnum; i++) {
+        pool.emplace_back(std::thread(worker, i + 1, std::ref(taskq)));
     }
 }
 
@@ -751,68 +815,8 @@ UDPTransport::SignalCallback(evutil_socket_t fd, short what, void *arg) {
     Notice("Terminating on SIGTERM/SIGINT");
     UDPTransport *transport = (UDPTransport *) arg;
     event_base_loopbreak(transport->libeventBase);
-}
 
-bool __SendMessageInternal(int cpu, int fd, char *buf, size_t msgLen, sockaddr_in sin) {
-    cpu_set_t m;
-    CPU_ZERO(&m);
-    CPU_SET(cpu, &m);
-
-    if (sendto(fd, buf, msgLen, 0,
-               (sockaddr *) &sin, sizeof(sin)) < 0) {
-        PWarning("Failed to send message");
-        goto fail;
-    }
-
-    delete[] buf;
-    return true;
-
-    fail:
-    delete[] buf;
-    return false;
-}
-
-bool __SendMessageInternalLarge(int cpu, int fd, char *buf, size_t msgLen,
-                                sockaddr_in sin, uint64_t msgId) {
-    cpu_set_t m;
-    CPU_ZERO(&m);
-    CPU_SET(cpu, &m);
-
-    msgLen -= sizeof(uint32_t);
-    char *bodyStart = buf + sizeof(uint32_t);
-    int numFrags = ((msgLen - 1) / MAX_UDP_MESSAGE_SIZE) + 1;
-//        Notice("Sending large message in %d fragments", numFrags);
-    for (size_t fragStart = 0; fragStart < msgLen;
-         fragStart += MAX_UDP_MESSAGE_SIZE) {
-        size_t fragLen = std::min(msgLen - fragStart,
-                                  MAX_UDP_MESSAGE_SIZE);
-        size_t fragHeaderLen = 2 * sizeof(size_t) + sizeof(uint64_t) + sizeof(uint32_t);
-        char fragBuf[fragLen + fragHeaderLen];
-        char *ptr = fragBuf;
-        *((uint32_t *) ptr) = FRAG_MAGIC;
-        ptr += sizeof(uint32_t);
-        *((uint64_t *) ptr) = msgId;
-        ptr += sizeof(uint64_t);
-        *((size_t *) ptr) = fragStart;
-        ptr += sizeof(size_t);
-        *((size_t *) ptr) = msgLen;
-        ptr += sizeof(size_t);
-        memcpy(ptr, &bodyStart[fragStart], fragLen);
-
-        if (sendto(fd, fragBuf, fragLen + fragHeaderLen, 0,
-                   (sockaddr *) &sin, sizeof(sin)) < 0) {
-            PWarning("Failed to send message fragment %ld",
-                     fragStart);
-            goto fail;
-        }
-    }
-
-    delete[] buf;
-    return true;
-
-    fail:
-    delete[] buf;
-    return false;
+    transport->JoinWokers();
 }
 
 bool
@@ -823,17 +827,20 @@ UDPTransport::SendMessageInternal(TransportReceiver *src,
     // Serialize message
     char *buf;
     size_t msgLen = SerializeMessage(m, &buf);
-    lastcpu = (lastcpu + 1) % cpunum + 1;
     int fd = fds[src];
+    uint64_t msgId = 0;
 
-    if (msgLen <= MAX_UDP_MESSAGE_SIZE) {
-        std::thread(__SendMessageInternal, lastcpu, fd, buf, msgLen,
-                   dynamic_cast<const UDPTransportAddress &>(dst).addr).detach();
-    } else {
-        uint64_t msgId = ++lastFragMsgId;
-        std::thread(__SendMessageInternalLarge, lastcpu, fd, buf, msgLen,
-                   dynamic_cast<const UDPTransportAddress &>(dst).addr, msgId).detach();
+    if (msgLen > MAX_UDP_MESSAGE_SIZE) {
+        msgId = ++ lastFragMsgId;
     }
-
+    taskq.enqueue(SendTask{fd, msgLen, buf, &(dst.addr), msgId});
     return true;
+}
+
+void UDPTransport::JoinWokers() {
+    for (auto i = 0; i < pool.size(); i++)
+        taskq.enqueue(SendTask{fd:-1});
+    for (auto& t : pool) {
+        t.join();
+    }
 }

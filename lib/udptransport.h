@@ -35,6 +35,7 @@
 #include "lib/configuration.h"
 #include "lib/transport.h"
 #include "lib/transportcommon.h"
+#include "concurrentqueue.h"
 
 #include <event2/event.h>
 
@@ -62,11 +63,19 @@ private:
                           const UDPTransportAddress &b);
 };
 
+struct SendTask{
+    int fd;
+    size_t msgLen;
+    char *buf;
+    const sockaddr_in *sin;
+    uint64_t msgId;
+};
+
 class UDPTransport : public TransportCommon<UDPTransportAddress>
 {
 public:
     UDPTransport(double dropRate = 0.0, double reorderRate = 0.0,
-                 int dscp = 0, event_base *evbase = nullptr);
+                 int dscp = 0, int sendtnum = 1, event_base *evbase = nullptr);
     virtual ~UDPTransport();
     void Register(TransportReceiver *receiver,
                   const specpaxos::Configuration &config,
@@ -111,12 +120,16 @@ private:
     uint64_t lastFragMsgId;
     int lastcpu;
     int cpunum;
+    int sendtnum;
     struct UDPTransportFragInfo
     {
         uint64_t msgId;
         string data;
     };
     std::map<UDPTransportAddress, UDPTransportFragInfo> fragInfo;
+
+    moodycamel::ConcurrentQueue<SendTask> taskq;
+    std::vector<std::thread> pool;
 
     bool SendMessageInternal(TransportReceiver *src,
                              const UDPTransportAddress &dst,
@@ -145,6 +158,10 @@ private:
     static void FatalCallback(int err);
     static void SignalCallback(evutil_socket_t fd,
                                short what, void *arg);
+
+    void JoinWokers();
+
+//    bool __SendMessageInternal(int cpu, int fd, char *buf, size_t msgLen, const sockaddr_in& sin);
 };
 
 #endif  // _LIB_UDPTRANSPORT_H_
