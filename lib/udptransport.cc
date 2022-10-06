@@ -224,9 +224,11 @@ void worker(int cpu, moodycamel::ConcurrentQueue<SendTask> &taskq) {
     SendTask t;
     while (true) {
         if (taskq.try_dequeue(t)) {
-            if (t.fd < 0)
+            if (t.fd < 0)  {
+                Notice("%d, Received to close", cpu);
                 break;
-            std::thread(__worker, t.fd, t.msgLen, t.buf, t.sin, t.msgId).detach();
+            }
+            __worker( t.fd, t.msgLen, t.buf, t.sin, t.msgId);
         }
     }
 }
