@@ -278,6 +278,8 @@ UDPTransport::UDPTransport(double dropRate, double reorderRate,
     sendtnum = std::max(1, std::min(cpunum - 1, sendtnum));
     for (int i = 0; i < sendtnum; i++) {
         pool.emplace_back(std::thread(worker, i + 1, std::ref(taskq)));
+        Notice("Starting sender thread %s", pool.back().get_id());
+        pool.back().detach();
     }
 }
 
@@ -816,7 +818,7 @@ UDPTransport::SignalCallback(evutil_socket_t fd, short what, void *arg) {
     UDPTransport *transport = (UDPTransport *) arg;
     event_base_loopbreak(transport->libeventBase);
 
-    transport->JoinWokers();
+    transport->JoinWorkers();
 }
 
 bool
@@ -837,10 +839,10 @@ UDPTransport::SendMessageInternal(TransportReceiver *src,
     return true;
 }
 
-void UDPTransport::JoinWokers() {
+void UDPTransport::JoinWorkers() {
     for (auto i = 0; i < pool.size(); i++)
         taskq.enqueue(SendTask{fd:-1});
     for (auto& t : pool) {
-        t.join();
+//        t.join();
     }
 }

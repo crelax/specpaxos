@@ -26,15 +26,14 @@ echo "running ${1} threads, delay = ${delay}."
 for ((i = 0; i < $tnum; i++)); do
   {
     if [[ $(delay) -ne 0 ]]; then
-                      $("${bdir}/client" -t 3 -m "vr" -c "${bdir}/config.txt" -n "${rnum}" -w 30 -d "${delay}" -i ${i} )&
+      $("${bdir}/client" -m vr -c "${bdir}/config.txt" -n "${rnum}" -w 10 -d "${delay}" -i ${i}) &
       subshell=$!
     else
       echo no delay
-      $("${bdir}/client" -t 3 -m vr -c "${bdir}/config.txt" -n "${rnum}" -w 30 -i ${i}) &
+      $("${bdir}/client" -m vr -c "${bdir}/config.txt" -n "${rnum}" -w 10 -i ${i}) &
       subshell=$!
     fi
-    echo "i=" ${i}
-    taskset -p --cpu-list ${i} ${subshell}
+    taskset -p --cpu-list $[7-$i] ${subshell}
   }
 
 done

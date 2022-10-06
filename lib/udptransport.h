@@ -159,7 +159,7 @@ private:
     static void SignalCallback(evutil_socket_t fd,
                                short what, void *arg);
 
-    void JoinWokers();
+    void JoinWorkers();
 
 //    bool __SendMessageInternal(int cpu, int fd, char *buf, size_t msgLen, const sockaddr_in& sin);
 };
