@@ -45,9 +45,9 @@
 static void
 Usage(const char *progName)
 {
-        fprintf(stderr, "usage: %s -c conf-file [-R] -i replica-index -m unreplicated|vr|fastpaxos|spec [-b batch-size] [-d packet-drop-rate] [-r packet-reorder-rate] [-q dscp]\n",
-                progName);
-        exit(1);
+    fprintf(stderr, "usage: %s -c conf-file [-R] -i replica-index -m unreplicated|vr|fastpaxos|spec [-b batch-size] [-d packet-drop-rate] [-r packet-reorder-rate] [-q dscp]\n",
+            progName);
+    exit(1);
 }
 
 
@@ -61,8 +61,9 @@ main(int argc, char **argv)
     int dscp = 0;
     int batchSize = 1;
     bool recover;
+    int cpu = -1;
     int sendtnum = 1;
-    
+
     specpaxos::AppReplica *nullApp = new specpaxos::AppReplica();
 
     enum
@@ -76,115 +77,131 @@ main(int argc, char **argv)
 
     // Parse arguments
     int opt;
-    while ((opt = getopt(argc, argv, "b:c:d:i:m:q:r:t:R")) != -1) {
+    while ((opt = getopt(argc, argv, "b:c:d:i:m:q:r:R:p:t")) != -1) {
         switch (opt) {
-        case 'b':
-        {
-            char *strtolPtr;
-            batchSize = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0')
-                || (batchSize < 1))
+            case 'b':
             {
-                fprintf(stderr,
-                        "option -b requires a numeric arg\n");
-                Usage(argv[0]);
+                char *strtolPtr;
+                batchSize = strtoul(optarg, &strtolPtr, 10);
+                if ((*optarg == '\0') || (*strtolPtr != '\0')
+                    || (batchSize < 1))
+                {
+                    fprintf(stderr,
+                            "option -b requires a numeric arg\n");
+                    Usage(argv[0]);
+                }
+                break;
             }
-            break;
-        }
 
-        case 'c':
-            configPath = optarg;
-            break;
+            case 'c':
+                configPath = optarg;
+                break;
 
-        case 'd':
-        {
-            char *strtodPtr;
-            dropRate = strtod(optarg, &strtodPtr);
-            if ((*optarg == '\0') || (*strtodPtr != '\0') ||
-                ((dropRate < 0) || (dropRate >= 1))) {
-                fprintf(stderr,
-                        "option -d requires a numeric arg between 0 and 1\n");
-                Usage(argv[0]);
-            }
-            break;
-        }
-
-        case 'i':
-        {
-            char *strtolPtr;
-            index = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0') || (index < 0))
+            case 'd':
             {
-                fprintf(stderr,
-                        "option -i requires a numeric arg\n");
-                Usage(argv[0]);
+                char *strtodPtr;
+                dropRate = strtod(optarg, &strtodPtr);
+                if ((*optarg == '\0') || (*strtodPtr != '\0') ||
+                    ((dropRate < 0) || (dropRate >= 1))) {
+                    fprintf(stderr,
+                            "option -d requires a numeric arg between 0 and 1\n");
+                    Usage(argv[0]);
+                }
+                break;
             }
-            break;
-        }
 
-        case 't':
-        {
-            char *strtolPtr;
-            sendtnum = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0') || (sendtnum <= 0))
+            case 'i':
             {
-                fprintf(stderr,
-                        "option -t requires a numeric arg\n");
-                Usage(argv[0]);
+                char *strtolPtr;
+                index = strtoul(optarg, &strtolPtr, 10);
+                if ((*optarg == '\0') || (*strtolPtr != '\0') || (index < 0))
+                {
+                    fprintf(stderr,
+                            "option -i requires a numeric arg\n");
+                    Usage(argv[0]);
+                }
+                break;
             }
-            break;
-        }
 
-        case 'm':
-            if (strcasecmp(optarg, "unreplicated") == 0) {
-                proto = PROTO_UNREPLICATED;
-            } else if (strcasecmp(optarg, "vr") == 0) {
-                proto = PROTO_VR;
-            } else if (strcasecmp(optarg, "fastpaxos") == 0) {
-                proto = PROTO_FASTPAXOS;
-            } else if (strcasecmp(optarg, "spec") == 0) {
-                proto = PROTO_SPEC;
-            } else {
-                fprintf(stderr, "unknown mode '%s'\n", optarg);
-                Usage(argv[0]);
-            }
-            break;
-
-        case 'q':
-        {
-            char *strtolPtr;
-            dscp = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0') ||
-                (dscp < 0))
+            case 'p':
             {
-                fprintf(stderr,
-                        "option -q requires a numeric arg\n");
-                Usage(argv[0]);
+                char *strtolPtr;
+                cpu = strtoul(optarg, &strtolPtr, 10);
+                if ((*optarg == '\0') || (*strtolPtr != '\0') || (cpu < 0) ||
+                    (static_cast<unsigned int>(cpu) >= std::thread::hardware_concurrency()))
+                {
+                    fprintf(stderr,
+                            "option -p requires a numeric arg and be in range [0, %d)\n",
+                            std::thread::hardware_concurrency());
+                    Usage(argv[0]);
+                }
+                break;
             }
-            break;
-        }
-            
-        case 'r':
-        {
-            char *strtodPtr;
-            reorderRate = strtod(optarg, &strtodPtr);
-            if ((*optarg == '\0') || (*strtodPtr != '\0') ||
-                ((reorderRate < 0) || (reorderRate >= 1))) {
-                fprintf(stderr,
-                        "option -r requires a numeric arg between 0 and 1\n");
-                Usage(argv[0]);
+
+            case 't':
+            {
+                char *strtolPtr;
+                sendtnum = strtoul(optarg, &strtolPtr, 10);
+                if ((*optarg == '\0') || (*strtolPtr != '\0') || (sendtnum <= 0) ||
+                    (static_cast<unsigned int>(sendtnum) >= std::thread::hardware_concurrency()))
+                {
+                    fprintf(stderr,
+                            "option -t requires a numeric arg\n");
+                    Usage(argv[0]);
+                }
+                break;
             }
-            break;
-        }
 
-        case 'R':
-            recover = true;
-            break;
+            case 'm':
+                if (strcasecmp(optarg, "unreplicated") == 0) {
+                    proto = PROTO_UNREPLICATED;
+                } else if (strcasecmp(optarg, "vr") == 0) {
+                    proto = PROTO_VR;
+                } else if (strcasecmp(optarg, "fastpaxos") == 0) {
+                    proto = PROTO_FASTPAXOS;
+                } else if (strcasecmp(optarg, "spec") == 0) {
+                    proto = PROTO_SPEC;
+                } else {
+                    fprintf(stderr, "unknown mode '%s'\n", optarg);
+                    Usage(argv[0]);
+                }
+                break;
 
-        default:
-            fprintf(stderr, "Unknown argument %s\n", argv[optind]);
-            Usage(argv[0]);
-            break;
+            case 'q':
+            {
+                char *strtolPtr;
+                dscp = strtoul(optarg, &strtolPtr, 10);
+                if ((*optarg == '\0') || (*strtolPtr != '\0') ||
+                    (dscp < 0))
+                {
+                    fprintf(stderr,
+                            "option -q requires a numeric arg\n");
+                    Usage(argv[0]);
+                }
+                break;
+            }
+
+            case 'r':
+            {
+                char *strtodPtr;
+                reorderRate = strtod(optarg, &strtodPtr);
+                if ((*optarg == '\0') || (*strtodPtr != '\0') ||
+                    ((reorderRate < 0) || (reorderRate >= 1))) {
+                    fprintf(stderr,
+                            "option -r requires a numeric arg between 0 and 1\n");
+                    Usage(argv[0]);
+                }
+                break;
+            }
+
+            case 'R':
+                recover = true;
+                break;
+
+            default:
+                fprintf(stderr, "Unknown argument %s\n", argv[optind]);
+                Usage(argv[0]);
+                break;
         }
     }
 
@@ -212,57 +229,60 @@ main(int argc, char **argv)
         Usage(argv[0]);
     }
     specpaxos::Configuration config(configStream);
-    
+
     if (index >= config.n) {
         fprintf(stderr, "replica index %d is out of bounds; "
-                "only %d replicas defined\n", index, config.n);
+                        "only %d replicas defined\n", index, config.n);
         Usage(argv[0]);
     }
-    
-    UDPTransport transport(dropRate, reorderRate, dscp, sendtnum);
 
+    if (cpu != -1) {
+        cpu_set_t m;
+        CPU_ZERO(&m);
+        CPU_SET(cpu, &m);
+        pthread_setaffinity_np(pthread_self(), sizeof(m), &m);
+    }
+    Notice("test init start ");
+    UDPTransport transport(dropRate, reorderRate, dscp);
+    Notice("test init done ");
     specpaxos::Replica *replica;
     switch (proto) {
-    case PROTO_UNREPLICATED:
-        replica =
-            new specpaxos::unreplicated::UnreplicatedReplica(config,
-                                                             index,
-                                                             !recover,
-                                                             &transport,
-                                                             nullApp);
-        break;
-        
-    case PROTO_VR:
-        replica = new specpaxos::vr::VRReplica(config, index,
-                                               !recover,
-                                               &transport,
-                                               batchSize,
-                                               nullApp);
-        break;
+        case PROTO_UNREPLICATED:
+            replica =
+                    new specpaxos::unreplicated::UnreplicatedReplica(config,
+                                                                     index,
+                                                                     !recover,
+                                                                     &transport,
+                                                                     nullApp);
+            break;
 
-    case PROTO_FASTPAXOS:
-        replica = new specpaxos::fastpaxos::FastPaxosReplica(config,
-                                                             !recover,
-                                                             index,
-                                                             &transport,
-                                                             nullApp);
-        break;
-        
-    case PROTO_SPEC:
-        replica = new specpaxos::spec::SpecReplica(config, index,
+        case PROTO_VR:
+            replica = new specpaxos::vr::VRReplica(config, index,
                                                    !recover,
-                                                   &transport, nullApp);
-        break;
-        
-    default:
-        NOT_REACHABLE();
+                                                   &transport,
+                                                   batchSize,
+                                                   nullApp);
+            break;
+
+        case PROTO_FASTPAXOS:
+            replica = new specpaxos::fastpaxos::FastPaxosReplica(config,
+                                                                 !recover,
+                                                                 index,
+                                                                 &transport,
+                                                                 nullApp);
+            break;
+
+        case PROTO_SPEC:
+            replica = new specpaxos::spec::SpecReplica(config, index,
+                                                       !recover,
+                                                       &transport, nullApp);
+            break;
+
+        default:
+            NOT_REACHABLE();
     }
 
-    cpu_set_t m;
-    CPU_ZERO(&m);
-    CPU_SET(0, &m);
-    pthread_setaffinity_np(pthread_self(), sizeof(m), &m);
-
+    Notice("test run ");
     transport.Run();
 
     delete replica;

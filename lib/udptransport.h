@@ -161,6 +161,8 @@ private:
 
     void JoinWorkers();
 
+    std::set<int> avoid_cpu;
+
 //    bool __SendMessageInternal(int cpu, int fd, char *buf, size_t msgLen, const sockaddr_in& sin);
 };
 

@@ -172,6 +172,53 @@ BindToPort(int fd, const string &host, const string &port) {
     }
 }
 
+static void __worker(const SendTask& t) {
+    char *buf = (char*) t.buf;
+    int fd = t.fd;
+    size_t msgLen = t.msgLen;
+
+    if (msgLen <= MAX_UDP_MESSAGE_SIZE) {
+        if (sendto(fd, buf, msgLen, 0,
+                   (sockaddr *) &(t.sin), sizeof(t.sin)) < 0) {
+            PWarning("Failed to send message");
+            goto out;
+        }
+    } else {
+        msgLen -= sizeof(uint32_t);
+        char *bodyStart = buf + sizeof(uint32_t);
+        int numFrags = ((msgLen - 1) / MAX_UDP_MESSAGE_SIZE) + 1;
+        Notice("Sending large message in %d fragments", numFrags);
+
+        for (size_t fragStart = 0; fragStart < msgLen;
+             fragStart += MAX_UDP_MESSAGE_SIZE) {
+            size_t fragLen = std::min(msgLen - fragStart,
+                                      MAX_UDP_MESSAGE_SIZE);
+            size_t fragHeaderLen = 2*sizeof(size_t) + sizeof(uint64_t) + sizeof(uint32_t);
+            char fragBuf[fragLen + fragHeaderLen];
+            char *ptr = fragBuf;
+            *((uint32_t *)ptr) = FRAG_MAGIC;
+            ptr += sizeof(uint32_t);
+            *((uint64_t *)ptr) = t.msgId;
+            ptr += sizeof(uint64_t);
+            *((size_t *)ptr) = fragStart;
+            ptr += sizeof(size_t);
+            *((size_t *)ptr) = msgLen;
+            ptr += sizeof(size_t);
+            memcpy(ptr, &bodyStart[fragStart], fragLen);
+
+            if (sendto(fd, fragBuf, fragLen + fragHeaderLen, 0,
+                       (sockaddr *)&(t.sin), sizeof(t.sin)) < 0) {
+                PWarning("Failed to send message fragment %ld",
+                         fragStart);
+                goto out;
+            }
+        }
+    }
+
+    out:
+    delete [] buf;
+}
+
 static void __worker(int fd, size_t msgLen, void *vbuf,
                      const sockaddr_in& sin, uint64_t msgId) {
     char *buf = (char*) vbuf;
@@ -223,6 +270,7 @@ void worker(int cpu, moodycamel::BlockingConcurrentQueue<SendTask> &taskq) {
     CPU_SET(cpu, &m);
     pthread_setaffinity_np(pthread_self(), sizeof(m), &m);
     SendTask t;
+    Notice("?????????????????");
     while (true) {
         taskq.wait_dequeue(t);
         {
@@ -230,7 +278,7 @@ void worker(int cpu, moodycamel::BlockingConcurrentQueue<SendTask> &taskq) {
                 Notice("%d, Received to close", cpu);
                 break;
             }
-            __worker( t.fd, t.msgLen, t.buf, t.sin, t.msgId);
+            __worker(t);
         }
     }
 }
@@ -245,6 +293,7 @@ UDPTransport::UDPTransport(double dropRate, double reorderRate,
 
     lastcpu = 0;
     cpunum = std::thread::hardware_concurrency();
+    avoid_cpu.insert({0,5});
 
     uniformDist = std::uniform_real_distribution<double>(0.0, 1.0);
     randomEngine.seed(time(NULL));
@@ -280,8 +329,14 @@ UDPTransport::UDPTransport(double dropRate, double reorderRate,
     }
 
     sendtnum = std::max(1, std::min(cpunum - 1, sendtnum));
+    int cpu = 0;
     for (int i = 0; i < sendtnum; i++) {
-        pool.emplace_back(std::thread(worker, i + 1, std::ref(taskq)));
+        do {
+            cpu = (cpu + 1) % cpunum;
+        } while (avoid_cpu.count(cpu));
+
+        Notice("adding thread to cpu %d", cpu);
+        pool.emplace_back(std::thread(worker, cpu, std::ref(taskq)));
         Notice("Starting sender thread %s", pool.back().get_id());
         pool.back().detach();
     }
