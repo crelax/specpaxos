@@ -61,14 +61,18 @@ private:
                            const UDPTransportAddress &b);
     friend bool operator<(const UDPTransportAddress &a,
                           const UDPTransportAddress &b);
+
+    friend class TasktoSend;
 };
 
-struct SendTask{
+struct TasktoSend{
     int fd;
     size_t msgLen;
-    void *buf;
-    sockaddr_in sin;
+    char * cptr;
+    UDPTransportAddress* dst;;
     uint64_t msgId;
+
+    void send();
 };
 
 class UDPTransport : public TransportCommon<UDPTransportAddress>
@@ -128,7 +132,7 @@ private:
     };
     std::map<UDPTransportAddress, UDPTransportFragInfo> fragInfo;
 
-    moodycamel::BlockingConcurrentQueue<SendTask> taskq;
+    moodycamel::BlockingConcurrentQueue<TasktoSend> taskq;
     std::vector<std::thread> pool;
 
     bool SendMessageInternal(TransportReceiver *src,

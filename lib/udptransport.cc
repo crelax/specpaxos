@@ -172,12 +172,12 @@ BindToPort(int fd, const string &host, const string &port) {
     }
 }
 
-static void __worker(int fd, size_t msgLen, void *vbuf,
-                     const sockaddr_in& sin, uint64_t msgId) {
-    char *buf = (char*) vbuf;
+ void TasktoSend:: send() {
+    char *buf = cptr;
+//    auto msgLen = t.msgLen;
     if (msgLen <= MAX_UDP_MESSAGE_SIZE) {
         if (sendto(fd, buf, msgLen, 0,
-                   (sockaddr *) &sin, sizeof(sin)) < 0) {
+                   (sockaddr *)&(dst->addr), sizeof(dst->addr)) < 0) {
             PWarning("Failed to send message");
             goto out;
         }
@@ -205,7 +205,7 @@ static void __worker(int fd, size_t msgLen, void *vbuf,
             memcpy(ptr, &bodyStart[fragStart], fragLen);
 
             if (sendto(fd, fragBuf, fragLen + fragHeaderLen, 0,
-                       (sockaddr *)&sin, sizeof(sin)) < 0) {
+                       (sockaddr *)&(dst->addr), sizeof(dst->addr)) < 0) {
                 PWarning("Failed to send message fragment %ld",
                          fragStart);
                 goto out;
@@ -214,15 +214,17 @@ static void __worker(int fd, size_t msgLen, void *vbuf,
     }
 
     out:
-    delete [] buf;
+    delete dst;
+    delete[] buf;
+
 }
 
-void worker(int cpu, moodycamel::BlockingConcurrentQueue<SendTask> &taskq) {
+void worker(int cpu, moodycamel::BlockingConcurrentQueue<TasktoSend> &taskq) {
     cpu_set_t m;
     CPU_ZERO(&m);
     CPU_SET(cpu, &m);
     pthread_setaffinity_np(pthread_self(), sizeof(m), &m);
-    SendTask t;
+    TasktoSend t;
     while (true) {
         taskq.wait_dequeue(t);
         {
@@ -230,7 +232,9 @@ void worker(int cpu, moodycamel::BlockingConcurrentQueue<SendTask> &taskq) {
                 Notice("%d, Received to close", cpu);
                 break;
             }
-            __worker( t.fd, t.msgLen, t.buf, t.sin, t.msgId);
+            t.send();
+//            __worker(t);
+//            __worker( t.fd, t.msgLen, t.buf, t.sin, t.msgId);
         }
     }
 }
@@ -283,7 +287,7 @@ UDPTransport::UDPTransport(double dropRate, double reorderRate,
     for (int i = 0; i < sendtnum; i++) {
         pool.emplace_back(std::thread(worker, i + 1, std::ref(taskq)));
         Notice("Starting sender thread %s", pool.back().get_id());
-        pool.back().detach();
+//        pool.back().detach();
     }
 }
 
@@ -839,13 +843,14 @@ UDPTransport::SendMessageInternal(TransportReceiver *src,
     if (msgLen > MAX_UDP_MESSAGE_SIZE) {
         msgId = ++ lastFragMsgId;
     }
-    taskq.enqueue(SendTask{fd, msgLen, (void *)buf, (dst.addr), msgId});
+
+    taskq.enqueue(TasktoSend{fd, msgLen, (char *)buf, dst.clone(), msgId});
     return true;
 }
 
 void UDPTransport::JoinWorkers() {
     for (auto i = 0; i < pool.size(); i++)
-        taskq.enqueue(SendTask{fd:-1});
+        taskq.enqueue(TasktoSend{fd:-1});
     for (auto& t : pool) {
         t.join();
     }
