@@ -61,6 +61,7 @@ main(int argc, char **argv)
     int dscp = 0;
     int batchSize = 1;
     bool recover;
+    int cpu = -1;
     
     specpaxos::AppReplica *nullApp = new specpaxos::AppReplica();
 
@@ -75,7 +76,7 @@ main(int argc, char **argv)
 
     // Parse arguments
     int opt;
-    while ((opt = getopt(argc, argv, "b:c:d:i:m:q:r:R")) != -1) {
+    while ((opt = getopt(argc, argv, "b:c:d:i:m:q:r:R:p")) != -1) {
         switch (opt) {
         case 'b':
         {
@@ -116,6 +117,21 @@ main(int argc, char **argv)
             {
                 fprintf(stderr,
                         "option -i requires a numeric arg\n");
+                Usage(argv[0]);
+            }
+            break;
+        }
+
+        case 'p':
+        {
+            char *strtolPtr;
+            cpu = strtoul(optarg, &strtolPtr, 10);
+            if ((*optarg == '\0') || (*strtolPtr != '\0') || (cpu < 0) ||
+                (static_cast<unsigned int>(cpu) >= std::thread::hardware_concurrency()))
+            {
+                fprintf(stderr,
+                        "option -p requires a numeric arg and be in range [0, %d)\n",
+                        std::thread::hardware_concurrency());
                 Usage(argv[0]);
             }
             break;
@@ -203,6 +219,13 @@ main(int argc, char **argv)
         fprintf(stderr, "replica index %d is out of bounds; "
                 "only %d replicas defined\n", index, config.n);
         Usage(argv[0]);
+    }
+
+    if (cpu != -1) {
+        cpu_set_t m;
+        CPU_ZERO(&m);
+        CPU_SET(cpu, &m);
+        pthread_setaffinity_np(pthread_self(), sizeof(m), &m);
     }
     
     UDPTransport transport(dropRate, reorderRate, dscp);
