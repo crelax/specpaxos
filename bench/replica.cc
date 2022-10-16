@@ -241,7 +241,7 @@ main(int argc, char **argv)
         CPU_SET(bindcpu, &m);
         pthread_setaffinity_np(pthread_self(), sizeof(m), &m);
     }
-    UDPTransport transport(dropRate, reorderRate, dscp);
+    UDPTransport transport(dropRate, reorderRate, dscp, sendtnum);
     specpaxos::Replica *replica;
     switch (proto) {
         case PROTO_UNREPLICATED:

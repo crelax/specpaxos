@@ -219,7 +219,7 @@ BindToPort(int fd, const string &host, const string &port) {
 
 }
 
-void worker(int cpu, moodycamel::BlockingConcurrentQueue<TasktoSend*> &taskq) {
+void worker(int cpu, moodycamel::ProducerToken &token, moodycamel::ConcurrentQueue<TasktoSend*> &taskq) {
     cpu_set_t m;
     CPU_ZERO(&m);
     CPU_SET(cpu, &m);
@@ -227,21 +227,22 @@ void worker(int cpu, moodycamel::BlockingConcurrentQueue<TasktoSend*> &taskq) {
 
     TasktoSend* t;
     while (true) {
-        if (taskq.try_dequeue(t))
+        if (taskq.try_dequeue_from_producer(token, t))
         {
             if (t == nullptr)  {
                 Notice("%d, Received to close", cpu);
                 break;
             }
             t->send();
+            delete t;
         }
     }
 }
 
 UDPTransport::UDPTransport(double dropRate, double reorderRate,
-                           int dscp, int sendtnum, event_base *evbase)
+                           int dscp, int tnum, event_base *evbase)
         : dropRate(dropRate), reorderRate(reorderRate),
-          dscp(dscp), sendtnum(sendtnum) {
+          dscp(dscp), sendtnum(tnum) {
 
     lastTimerId = 0;
     lastFragMsgId = 0;
@@ -283,7 +284,10 @@ UDPTransport::UDPTransport(double dropRate, double reorderRate,
         event_add(x, NULL);
     }
 
-    sendtnum = std::max(1, std::min(cpunum - 1, sendtnum));
+    sendtnum = std::max(1, std::min(cpunum - 2, sendtnum));
+    Notice("arranging %d threads to send packages", sendtnum);
+
+    token = moodycamel::ProducerToken(taskq);
     int cpu = 0;
     for (int i = 0; i < sendtnum; i++) {
         do {
@@ -291,10 +295,11 @@ UDPTransport::UDPTransport(double dropRate, double reorderRate,
         } while (avoid_cpu.count(cpu));
 
         Notice("adding thread to cpu %d", cpu);
-        pool.emplace_back(std::thread(worker, cpu, std::ref(taskq)));
-        Notice("Starting sender thread %s", pool.back().get_id());
+        pool.emplace_back(std::thread(worker, cpu, std::ref(token), std::ref(taskq)));
+        Notice("Starting sender thread %llu", pool.back().get_id());
 //        pool.back().detach();
     }
+
 }
 
 UDPTransport::~UDPTransport() {
@@ -850,13 +855,13 @@ UDPTransport::SendMessageInternal(TransportReceiver *src,
         msgId = ++ lastFragMsgId;
     }
     auto t = new TasktoSend{fd, msgLen, (char *)buf, dst.clone(), msgId};
-    taskq.enqueue(t);
+    taskq.enqueue(token, t);
     return true;
 }
 
 void UDPTransport::JoinWorkers() {
     for (auto i = 0; i < pool.size(); i++)
-        taskq.enqueue(nullptr);
+        taskq.enqueue(token, nullptr);
     for (auto& t : pool) {
         t.join();
     }

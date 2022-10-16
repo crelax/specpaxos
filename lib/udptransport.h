@@ -132,7 +132,9 @@ private:
     };
     std::map<UDPTransportAddress, UDPTransportFragInfo> fragInfo;
 
-    moodycamel::ConcurrentQueue<TasktoSend*> taskq;
+    moodycamel::ConcurrentQueue<TasktoSend*> taskq = moodycamel::ConcurrentQueue<TasktoSend*>(4096, 1, 0);
+    moodycamel::ProducerToken token = moodycamel::ProducerToken(taskq);
+
     std::vector<std::thread> pool;
 
     bool SendMessageInternal(TransportReceiver *src,
