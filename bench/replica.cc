@@ -61,8 +61,8 @@ main(int argc, char **argv)
     int dscp = 0;
     int batchSize = 1;
     bool recover;
-    int cpu = -1;
     int sendtnum = 1;
+    int bindcpu = -1;
 
     specpaxos::AppReplica *nullApp = new specpaxos::AppReplica();
 
@@ -77,7 +77,7 @@ main(int argc, char **argv)
 
     // Parse arguments
     int opt;
-    while ((opt = getopt(argc, argv, "b:c:d:i:m:q:r:R:p:t")) != -1) {
+    while ((opt = getopt(argc, argv, "b:c:d:i:m:q:r:R:p:t:p")) != -1) {
         switch (opt) {
             case 'b':
             {
@@ -88,6 +88,20 @@ main(int argc, char **argv)
                 {
                     fprintf(stderr,
                             "option -b requires a numeric arg\n");
+                    Usage(argv[0]);
+                }
+                break;
+            }
+
+            case 'p':
+            {
+                char *strtolPtr;
+                bindcpu = strtoul(optarg, &strtolPtr, 10);
+                if ((*optarg == '\0') || (*strtolPtr != '\0')
+                    || (bindcpu < 0) || (static_cast<unsigned int>(bindcpu) >= std::thread::hardware_concurrency()))
+                {
+                    fprintf(stderr,
+                            "option -p requires a numeric arg\n");
                     Usage(argv[0]);
                 }
                 break;
@@ -118,21 +132,6 @@ main(int argc, char **argv)
                 {
                     fprintf(stderr,
                             "option -i requires a numeric arg\n");
-                    Usage(argv[0]);
-                }
-                break;
-            }
-
-            case 'p':
-            {
-                char *strtolPtr;
-                cpu = strtoul(optarg, &strtolPtr, 10);
-                if ((*optarg == '\0') || (*strtolPtr != '\0') || (cpu < 0) ||
-                    (static_cast<unsigned int>(cpu) >= std::thread::hardware_concurrency()))
-                {
-                    fprintf(stderr,
-                            "option -p requires a numeric arg and be in range [0, %d)\n",
-                            std::thread::hardware_concurrency());
                     Usage(argv[0]);
                 }
                 break;
@@ -236,15 +235,13 @@ main(int argc, char **argv)
         Usage(argv[0]);
     }
 
-    if (cpu != -1) {
+    if (bindcpu != -1) {
         cpu_set_t m;
         CPU_ZERO(&m);
-        CPU_SET(cpu, &m);
+        CPU_SET(bindcpu, &m);
         pthread_setaffinity_np(pthread_self(), sizeof(m), &m);
     }
-    Notice("test init start ");
     UDPTransport transport(dropRate, reorderRate, dscp);
-    Notice("test init done ");
     specpaxos::Replica *replica;
     switch (proto) {
         case PROTO_UNREPLICATED:
@@ -282,7 +279,6 @@ main(int argc, char **argv)
             NOT_REACHABLE();
     }
 
-    Notice("test run ");
     transport.Run();
 
     delete replica;
