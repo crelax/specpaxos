@@ -55,12 +55,12 @@ int
 main(int argc, char **argv)
 {
     int index = -1;
-    const char *configPath = NULL;
+    const char *configPath = nullptr;
     double dropRate = 0.0;
     double reorderRate = 0.0;
     int dscp = 0;
     int batchSize = 1;
-    bool recover;
+    bool recover = false;
     int bindcpu = -1;
     
     specpaxos::AppReplica *nullApp = new specpaxos::AppReplica();
