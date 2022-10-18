@@ -231,7 +231,7 @@ int main(int argc, char **argv)
             break;
 
         case PROTO_VR:
-            client = new specpaxos::vr::VRClient(config, &transport, cid + rand() % 10007);
+            client = new specpaxos::vr::VRClient(config, &transport, cid + rand() % 1000000007);
             break;
 
         case PROTO_FASTPAXOS:

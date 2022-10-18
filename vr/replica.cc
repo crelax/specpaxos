@@ -607,6 +607,8 @@ VRReplica::HandlePrepare(const TransportAddress &remote,
     }
 
     if (msg.view() > this->view) {
+        RNotice("Requesting state transfer since View lag: current view " FMT_VIEW ", msg view" FMT_VIEW,
+                view, msg.view());
         RequestStateTransfer();
         pendingPrepares.push_back(std::pair<TransportAddress *, PrepareMessage>(remote.clone(), msg));
         return;
@@ -636,9 +638,12 @@ VRReplica::HandlePrepare(const TransportAddress &remote,
         return;
     }
 
-    if (msg.batchstart() > this->lastOp+1) {
+    if (msg.batchstart() > this->lastOp + 1) {
+        RNotice("Requesting state transfer since msg.batchstart > this->lastOp+1, view " FMT_VIEW ", batch start:" FMT_OPNUM ", nextOp:" FMT_OPNUM,
+                view, msg.batchstart(), this->lastOp + 1);
         RequestStateTransfer();
-        pendingPrepares.push_back(std::pair<TransportAddress *, PrepareMessage>(remote.clone(), msg));
+        pendingPrepares.push_back(
+                std::pair<TransportAddress *, PrepareMessage>(remote.clone(), msg));
         return;
     }
     
@@ -689,6 +694,8 @@ VRReplica::HandlePrepareOK(const TransportAddress &remote,
     }
 
     if (msg.view() > this->view) {
+        RNotice("Requesting state transfer since view diff, msg V" FMT_VIEW ", this V" FMT_VIEWSTAMP,
+                msg.view(), view, lastCommitted);
         RequestStateTransfer();
         return;
     }
@@ -759,6 +766,8 @@ VRReplica::HandleCommit(const TransportAddress &remote,
     }
 
     if (msg.view() > this->view) {
+        RNotice("Requesting state transfer since view diff, msg V" FMT_VIEW ", this V" FMT_VIEWSTAMP,
+                msg.view(), view, lastCommitted);
         RequestStateTransfer();
         return;
     }
@@ -775,6 +784,8 @@ VRReplica::HandleCommit(const TransportAddress &remote,
     }
 
     if (msg.opnum() > this->lastOp) {
+        RNotice("Requesting state transfer since opnum diff, View " FMT_VIEW ", msgOp" FMT_OPNUM " > this.lastop" FMT_OPNUM,
+                msg.view(), msg.opnum(), lastOp);
         RequestStateTransfer();
         return;
     }
@@ -796,6 +807,8 @@ VRReplica::HandleRequestStateTransfer(const TransportAddress &remote,
     }
 
     if (msg.view() > view) {
+        RNotice("Requesting state transfer since View lag: current view " FMT_VIEW ", msg view" FMT_VIEW,
+                view, msg.view());
         RequestStateTransfer();
         return;
     }
