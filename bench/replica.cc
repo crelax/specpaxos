@@ -60,7 +60,7 @@ main(int argc, char **argv)
     double reorderRate = 0.0;
     int dscp = 0;
     int batchSize = 1;
-    bool recover;
+    bool recover = false;
     int sendtnum = 1;
     int bindcpu = -1;
 
