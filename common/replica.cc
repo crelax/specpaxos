@@ -49,7 +49,8 @@ Replica::Replica(const Configuration &configuration, int myIdx,
 
 Replica::~Replica()
 {
-    
+    if (app)
+        delete app;
 }
 
 void
