@@ -237,10 +237,8 @@ VRReplica::SendRecoveryMessages() {
 }
 
 void
-VRReplica::RequestStateTransfer() {
-    RequestStateTransferMessage m;
-    m.set_view(view);
-    m.set_opnum(lastCommitted);
+VRReplica::RequestStateTransfer()
+{
 
     if ((lastRequestStateTransferOpnum != 0) &&
         (lastRequestStateTransferView == view) &&
@@ -249,6 +247,10 @@ VRReplica::RequestStateTransfer() {
                        " because we already requested it", view, lastCommitted);
         return;
     }
+
+    RequestStateTransferMessage m;
+    m.set_view(view);
+    m.set_opnum(lastCommitted);
 
     RNotice("Requesting state transfer: " FMT_VIEWSTAMP, view, lastCommitted);
 
@@ -876,7 +878,7 @@ VRReplica::HandleStateTransfer(const TransportAddress &remote,
     // Process pending prepares
     std::list<std::pair<TransportAddress *, PrepareMessage> > pending = pendingPrepares;
     pendingPrepares.clear();
-    for (auto &msgpair: pendingPrepares) {
+    for (auto & msgpair : pending) {
         RDebug("Processing pending prepare message");
         HandlePrepare(*msgpair.first, msgpair.second);
         delete msgpair.first;
