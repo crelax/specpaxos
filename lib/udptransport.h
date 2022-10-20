@@ -51,9 +51,10 @@ class UDPTransportAddress : public TransportAddress
 {
 public:
     UDPTransportAddress * clone() const;
+    sockaddr_in addr;
 private:
     UDPTransportAddress(const sockaddr_in &addr);
-    sockaddr_in addr;
+
     friend class UDPTransport;
     friend bool operator==(const UDPTransportAddress &a,
                            const UDPTransportAddress &b);
@@ -65,14 +66,18 @@ private:
     friend class TasktoSend;
 };
 
-struct TasktoSend{
+class TasktoSend{
+public:
     int fd;
-    size_t msgLen;
-    char * cptr;
-    UDPTransportAddress* dst;;
+//    size_t msgLen;
+//    char * cptr;
+    UDPTransportAddress* dst;
     uint64_t msgId;
-
-    void send();
+    std::shared_ptr<google::protobuf::Message> m;
+    ~TasktoSend(){
+        m = nullptr;
+        delete dst;
+    }
 };
 
 class UDPTransport : public TransportCommon<UDPTransportAddress>
@@ -137,11 +142,11 @@ private:
 
     std::vector<std::thread> pool;
 
-    bool SendMessageInternal(TransportReceiver *src,
+    bool SendPtrMessageInternal(TransportReceiver *src,
                              const UDPTransportAddress &dst,
-                             const Message &m, bool multicast = false);
+                             const std::shared_ptr<Message> m, bool multicast = false);
 
-    bool SendMessageInternalT(TransportReceiver *src,
+    bool SendMessageInternal(TransportReceiver *src,
                              const UDPTransportAddress &dst,
                              const Message &m, bool multicast = false);
 
@@ -171,5 +176,8 @@ private:
 
 //    bool __SendMessageInternal(int cpu, int fd, char *buf, size_t msgLen, const sockaddr_in& sin);
 };
+
+void worker(int cpu, moodycamel::ProducerToken &token, moodycamel::ConcurrentQueue<TasktoSend*> &taskq);
+void do_send(TasktoSend* t, ssize_t msgLen, char* cptr);
 
 #endif  // _LIB_UDPTRANSPORT_H_

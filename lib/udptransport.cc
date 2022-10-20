@@ -172,12 +172,13 @@ BindToPort(int fd, const string &host, const string &port) {
     }
 }
 
- void TasktoSend:: send() {
+void do_send(TasktoSend* t, ssize_t msgLen, char* cptr) {
     char *buf = cptr;
-//    auto msgLen = t.msgLen;
+    auto sin = t->dst->addr;
+    //    auto msgLen = t->msgLe;
     if (msgLen <= MAX_UDP_MESSAGE_SIZE) {
-        if (sendto(fd, buf, msgLen, 0,
-                   (sockaddr *)&(dst->addr), sizeof(dst->addr)) < 0) {
+        if (sendto(t->fd, buf, msgLen, 0,
+                   (sockaddr *)&sin, sizeof(sin)) < 0) {
             PWarning("Failed to send message");
             goto out;
         }
@@ -196,7 +197,7 @@ BindToPort(int fd, const string &host, const string &port) {
             char *ptr = fragBuf;
             *((uint32_t *)ptr) = FRAG_MAGIC;
             ptr += sizeof(uint32_t);
-            *((uint64_t *)ptr) = msgId;
+            *((uint64_t *)ptr) = t->msgId;
             ptr += sizeof(uint64_t);
             *((size_t *)ptr) = fragStart;
             ptr += sizeof(size_t);
@@ -204,8 +205,8 @@ BindToPort(int fd, const string &host, const string &port) {
             ptr += sizeof(size_t);
             memcpy(ptr, &bodyStart[fragStart], fragLen);
 
-            if (sendto(fd, fragBuf, fragLen + fragHeaderLen, 0,
-                       (sockaddr *)&(dst->addr), sizeof(dst->addr)) < 0) {
+            if (sendto(t->fd, fragBuf, fragLen + fragHeaderLen, 0,
+                       (sockaddr *)&(sin), sizeof(sin)) < 0) {
                 PWarning("Failed to send message fragment %ld",
                          fragStart);
                 goto out;
@@ -214,16 +215,30 @@ BindToPort(int fd, const string &host, const string &port) {
     }
 
     out:
-    delete dst;
-    delete[] buf;
-
+    //    delete dst;
+    //    delete[] buf;
+    return;
 }
 
 void worker(int cpu, moodycamel::ProducerToken &token, moodycamel::ConcurrentQueue<TasktoSend*> &taskq) {
-    cpu_set_t m;
-    CPU_ZERO(&m);
-    CPU_SET(cpu, &m);
-    pthread_setaffinity_np(pthread_self(), sizeof(m), &m);
+    cpu_set_t mask;
+    CPU_ZERO(&mask);
+    CPU_SET(cpu, &mask);
+    pthread_setaffinity_np(pthread_self(), sizeof(mask), &mask);
+
+    string data, type;
+    size_t typeLen, dataLen;
+    ssize_t totalLen;
+
+    data.reserve(32767);
+    string msgTypename;
+    char short_buf[MAX_UDP_MESSAGE_SIZE];
+
+    char* long_buf = new char[100000];
+    size_t long_buf_size = 100000;
+    // Serialize message
+    char *buf;
+
 
     TasktoSend* t;
     while (true) {
@@ -233,8 +248,51 @@ void worker(int cpu, moodycamel::ProducerToken &token, moodycamel::ConcurrentQue
                 Notice("%d, Received to close", cpu);
                 break;
             }
-            t->send();
+
+            // Serialize
+            type = t->m->GetTypeName();
+            t->m->SerializeToString(&data);
+
+            typeLen = type.length();
+            dataLen = data.length();
+            totalLen = (sizeof(uint32_t) +
+                        typeLen + sizeof(typeLen) +
+                        dataLen + sizeof(dataLen));
+
+            if (totalLen <= MAX_UDP_MESSAGE_SIZE) {
+                buf = short_buf;
+            } else {
+                if (long_buf_size < totalLen) {
+                    delete[] long_buf;
+                    long_buf = new char[totalLen];
+                    long_buf_size = totalLen;
+                }
+                buf = long_buf;
+            }
+
+            {
+                char *ptr = buf;
+                *(uint32_t *) ptr = NONFRAG_MAGIC;
+                ptr += sizeof(uint32_t);
+                *((size_t *) ptr) = typeLen;
+                ptr += sizeof(size_t);
+                ASSERT(ptr - buf < totalLen);
+                ASSERT(ptr + typeLen - buf < totalLen);
+                memcpy(ptr, type.c_str(), typeLen);
+                ptr += typeLen;
+                *((size_t *) ptr) = dataLen;
+                ptr += sizeof(size_t);
+                ASSERT(ptr - buf < totalLen);
+                ASSERT(ptr + dataLen - buf == totalLen);
+                memcpy(ptr, data.c_str(), dataLen);
+                ptr += dataLen;
+            }
+
+            do_send(t, totalLen, buf);
+
             delete t;
+            t = nullptr;
+            buf = nullptr;
         }
     }
 }
@@ -471,7 +529,6 @@ SerializeMessage(const ::google::protobuf::Message &m, char **out) {
     ssize_t totalLen = (sizeof(uint32_t) +
                         typeLen + sizeof(typeLen) +
                         dataLen + sizeof(dataLen));
-
     char *buf = new char[totalLen];
 
     char *ptr = buf;
@@ -495,7 +552,7 @@ SerializeMessage(const ::google::protobuf::Message &m, char **out) {
 }
 
 bool
-UDPTransport::SendMessageInternalT(TransportReceiver *src,
+UDPTransport::SendMessageInternal(TransportReceiver *src,
                                    const UDPTransportAddress &dst,
                                    const Message &m,
                                    bool multicast) {
@@ -841,20 +898,19 @@ UDPTransport::SignalCallback(evutil_socket_t fd, short what, void *arg) {
 }
 
 bool
-UDPTransport::SendMessageInternal(TransportReceiver *src,
+UDPTransport::SendPtrMessageInternal(TransportReceiver *src,
                                   const UDPTransportAddress &dst,
-                                  const Message &m,
+                                  const std::shared_ptr<Message> m,
                                   bool multicast) {
     // Serialize message
-    char *buf;
-    size_t msgLen = SerializeMessage(m, &buf);
+//    char *buf;
+//    size_t msgLen = SerializeMessage(*m, &buf);
     int fd = fds[src];
-    uint64_t msgId = 0;
 
-    if (msgLen > MAX_UDP_MESSAGE_SIZE) {
-        msgId = ++ lastFragMsgId;
+    TasktoSend* t = new TasktoSend{fd, dst.clone(), 0, m};
+    if (m->ByteSizeLong() > MAX_UDP_MESSAGE_SIZE - 1000) {
+        t->msgId = ++lastFragMsgId;
     }
-    auto t = new TasktoSend{fd, msgLen, (char *)buf, dst.clone(), msgId};
     taskq.enqueue(token, t);
     return true;
 }
