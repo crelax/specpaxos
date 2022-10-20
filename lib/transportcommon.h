@@ -114,6 +114,9 @@ public:
                                 const std::shared_ptr<Message> m, bool sequence)
     {
         const ADDR &dstAddr = dynamic_cast<const ADDR &>(dst);
+        if (sequence) {
+            return SendPtrMessageInternal(src, dstAddr, m, false, ++lastSeqId);
+        }
         return SendPtrMessageInternal(src, dstAddr, m, false);
     }
 
@@ -131,6 +134,9 @@ public:
         auto kv = replicaAddresses[cfg].find(replicaIdx);
         ASSERT(kv != replicaAddresses[cfg].end());
 
+        if (sequence) {
+            return SendPtrMessageInternal(src, kv->second, m, false, ++lastSeqId);
+        }
         return SendPtrMessageInternal(src, kv->second, m, false);
     }
 
@@ -155,14 +161,15 @@ public:
                 if (srcAddr == kv2.second) {
                     continue;
                 }
-                if (!SendPtrMessageInternal(src, kv2.second, m, false)) {
+                auto seq = sequence ? ++lastSeqId : 0;
+                if (!SendPtrMessageInternal(src, kv2.second, m, false, seq)) {
                     return false;
                 }
             }
             return true;
         }
     }
-    
+
 protected:
     virtual bool SendMessageInternal(TransportReceiver *src,
                                      const ADDR &dst,
@@ -171,7 +178,8 @@ protected:
     virtual bool SendPtrMessageInternal(TransportReceiver *src,
                                      const ADDR &dst,
                                      const std::shared_ptr<Message> m,
-                                     bool multicast = false) = 0;
+                                     bool multicast = false,
+                                     uint64_t sendId = 0) = 0;
     virtual ADDR LookupAddress(const specpaxos::Configuration &cfg,
                                int replicaIdx) = 0;
     virtual const ADDR *
@@ -188,7 +196,7 @@ protected:
     std::map<const specpaxos::Configuration *, ADDR> multicastAddresses;
     bool replicaAddressesInitialized;
 
-    uint32_t lastSeqMsgId;
+    uint64_t lastSeqId = 0;
 
     virtual specpaxos::Configuration *
     RegisterConfiguration(TransportReceiver *receiver,

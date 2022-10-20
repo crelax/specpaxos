@@ -73,6 +73,7 @@ public:
 //    char * cptr;
     UDPTransportAddress* dst;
     uint64_t msgId;
+    uint64_t seqId;
     std::shared_ptr<google::protobuf::Message> m;
     ~TasktoSend(){
         m = nullptr;
@@ -95,6 +96,9 @@ public:
     void CancelAllTimers();
     
 private:
+
+    std::atomic<uint64_t> nowSendId;
+
     struct UDPTransportTimerInfo
     {
         UDPTransport *transport;
@@ -144,7 +148,7 @@ private:
 
     bool SendPtrMessageInternal(TransportReceiver *src,
                              const UDPTransportAddress &dst,
-                             const std::shared_ptr<Message> m, bool multicast = false);
+                             const std::shared_ptr<Message> m, bool multicast = false, uint64_t sendId= 0);
 
     bool SendMessageInternal(TransportReceiver *src,
                              const UDPTransportAddress &dst,
@@ -174,10 +178,11 @@ private:
 
     std::set<int> avoid_cpu;
 
-//    bool __SendMessageInternal(int cpu, int fd, char *buf, size_t msgLen, const sockaddr_in& sin);
+    void
+    worker(int cpu, moodycamel::ProducerToken &token, moodycamel::ConcurrentQueue<TasktoSend*> &taskq);
 };
 
-void worker(int cpu, moodycamel::ProducerToken &token, moodycamel::ConcurrentQueue<TasktoSend*> &taskq);
+
 void do_send(TasktoSend* t, ssize_t msgLen, char* cptr);
 
 #endif  // _LIB_UDPTRANSPORT_H_

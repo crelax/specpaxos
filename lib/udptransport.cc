@@ -220,7 +220,8 @@ void do_send(TasktoSend* t, ssize_t msgLen, char* cptr) {
     return;
 }
 
-void worker(int cpu, moodycamel::ProducerToken &token, moodycamel::ConcurrentQueue<TasktoSend*> &taskq) {
+void
+UDPTransport::worker(int cpu, moodycamel::ProducerToken &token, moodycamel::ConcurrentQueue<TasktoSend*> &taskq) {
     cpu_set_t mask;
     CPU_ZERO(&mask);
     CPU_SET(cpu, &mask);
@@ -288,8 +289,19 @@ void worker(int cpu, moodycamel::ProducerToken &token, moodycamel::ConcurrentQue
                 ptr += dataLen;
             }
 
-            do_send(t, totalLen, buf);
+            if (t->seqId == 0) {
+                // no order
+                do_send(t, totalLen, buf);
+            } else {
+                while (auto x = nowSendId.load(std::memory_order_acquire) != t->seqId) {
+                    if (x > t->seqId)
+                        goto out;
+                }
+                do_send(t, totalLen, buf);
 
+                nowSendId.fetch_add(1, std::memory_order_release);
+            }
+        out:
             delete t;
             t = nullptr;
             buf = nullptr;
@@ -353,11 +365,11 @@ UDPTransport::UDPTransport(double dropRate, double reorderRate,
         } while (avoid_cpu.count(cpu));
 
         Notice("adding thread to cpu %d", cpu);
-        pool.emplace_back(std::thread(worker, cpu, std::ref(token), std::ref(taskq)));
+        pool.emplace_back(std::thread(&UDPTransport::worker, this, cpu, std::ref(token), std::ref(taskq)));
         Notice("Starting sender thread %llu", pool.back().get_id());
 //        pool.back().detach();
     }
-
+    nowSendId.store(1);
 }
 
 UDPTransport::~UDPTransport() {
@@ -901,13 +913,14 @@ bool
 UDPTransport::SendPtrMessageInternal(TransportReceiver *src,
                                   const UDPTransportAddress &dst,
                                   const std::shared_ptr<Message> m,
-                                  bool multicast) {
+                                  bool multicast,
+                                  uint64_t sendId) {
     // Serialize message
 //    char *buf;
 //    size_t msgLen = SerializeMessage(*m, &buf);
     int fd = fds[src];
 
-    TasktoSend* t = new TasktoSend{fd, dst.clone(), 0, m};
+    TasktoSend* t = new TasktoSend{fd, dst.clone(), 0, sendId, m};
     if (m->ByteSizeLong() > MAX_UDP_MESSAGE_SIZE - 1000) {
         t->msgId = ++lastFragMsgId;
     }

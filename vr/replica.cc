@@ -185,7 +185,7 @@ VRReplica::CommitUpTo(opnum_t upto) {
         /* Send reply */
         auto iter = clientAddresses.find(entry->request.clientid());
         if (iter != clientAddresses.end()) {
-            transport->SendPtrMessage(this, *iter->second, reply);
+            transport->SendPtrMessage(this, *iter->second, reply, false);
         }
 
         Latency_End(&executeAndReplyLatency);
@@ -218,7 +218,7 @@ VRReplica::SendPrepareOKs(opnum_t oldLastOp) {
     
         if (!(transport->SendPtrMessageToReplica(this,
                                               configuration.GetLeaderIndex(view),
-                                              reply))) {
+                                              reply, false))) {
             RWarning("Failed to send PrepareOK message to leader");
         }
     }
@@ -255,7 +255,7 @@ VRReplica::RequestStateTransfer() {
     this->lastRequestStateTransferView = view;
     this->lastRequestStateTransferOpnum = lastCommitted;
 
-    if (!transport->SendPtrMessageToAll(this, m)) {
+    if (!transport->SendPtrMessageToAll(this, m, false)) {
         RWarning("Failed to send RequestStateTransfer message to all replicas");
     }
 }
@@ -346,6 +346,7 @@ VRReplica::ResendPrepare() {
         return;
     }
     RNotice("Resending prepare");
+    // false order so as to deliver ASAP
     if (!(transport->SendPtrMessageToAll(this, lastPrepare))) {
         RWarning("Failed to ressend prepare message to all replicas");
     }
@@ -488,7 +489,7 @@ VRReplica::HandleRequest(const TransportAddress &remote,
             if (entry.replied) {
                 RNotice("Received duplicate request; resending reply");
                 if (!(transport->SendPtrMessage(this, remote,
-                                             entry.reply))) {
+                                             entry.reply, false))) {
                     RWarning("Failed to resend reply to client");
                 }
                 Latency_EndType(&requestLatency, 'r');
@@ -522,7 +523,7 @@ VRReplica::HandleRequest(const TransportAddress &remote,
         reply->set_clientreqid(msg.req().clientreqid());
         cte.replied = true;
         cte.reply = reply;
-        transport->SendPtrMessage(this, remote, reply);
+        transport->SendPtrMessage(this, remote, reply, false);
         Latency_EndType(&requestLatency, 'f');
     } else {
         Request request;
@@ -572,7 +573,7 @@ VRReplica::HandleUnloggedRequest(const TransportAddress &remote,
 
     ExecuteUnlogged(msg.req(), *reply);
 
-    if (!(transport->SendPtrMessage(this, remote, reply)))
+    if (!(transport->SendPtrMessage(this, remote, reply, false)))
         Warning("Failed to send reply message");
 }
 
@@ -619,7 +620,7 @@ VRReplica::HandlePrepare(const TransportAddress &remote,
         reply->set_replicaidx(myIdx);
         if (!(transport->SendPtrMessageToReplica(this,
                                               configuration.GetLeaderIndex(view),
-                                              reply))) {
+                                              reply, false))) {
             RWarning("Failed to send PrepareOK message to leader");
         }
         return;
@@ -808,7 +809,7 @@ VRReplica::HandleRequestStateTransfer(const TransportAddress &remote,
     
     log.Dump(msg.opnum()+1, reply->mutable_entries());
 
-    transport->SendPtrMessage(this, remote, reply);
+    transport->SendPtrMessage(this, remote, reply, false);
 }
 
 void
