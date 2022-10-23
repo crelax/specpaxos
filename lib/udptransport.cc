@@ -233,13 +233,12 @@ UDPTransport::worker(int cpu, moodycamel::ProducerToken &token, moodycamel::Conc
 
     data.reserve(32767);
     string msgTypename;
-    char short_buf[MAX_UDP_MESSAGE_SIZE];
+    char short_buf[MAX_UDP_MESSAGE_SIZE + 100];
 
     char* long_buf = new char[100000];
     size_t long_buf_size = 100000;
     // Serialize message
     char *buf;
-
 
     TasktoSend* t;
     while (true) {
@@ -259,6 +258,7 @@ UDPTransport::worker(int cpu, moodycamel::ProducerToken &token, moodycamel::Conc
             totalLen = (sizeof(uint32_t) +
                         typeLen + sizeof(typeLen) +
                         dataLen + sizeof(dataLen));
+            ssize_t msgLen = totalLen;
 
             if (totalLen <= MAX_UDP_MESSAGE_SIZE) {
                 buf = short_buf;
@@ -272,6 +272,7 @@ UDPTransport::worker(int cpu, moodycamel::ProducerToken &token, moodycamel::Conc
             }
 
             {
+                // [MAGIC_NUM] [typeLen] [type] [dataLen] [data]
                 char *ptr = buf;
                 *(uint32_t *) ptr = NONFRAG_MAGIC;
                 ptr += sizeof(uint32_t);
@@ -289,22 +290,82 @@ UDPTransport::worker(int cpu, moodycamel::ProducerToken &token, moodycamel::Conc
                 ptr += dataLen;
             }
 
-            if (t->seqId == 0) {
-                // no order
-                do_send(t, totalLen, buf);
-            } else {
-                while (auto x = nowSendId.load(std::memory_order_acquire) != t->seqId) {
-                    if (x > t->seqId)
-                        goto out;
-                }
-                do_send(t, totalLen, buf);
+//            if (t->seqId == 0) {
+//                // no order
+////                do_send(t, totalLen, buf);
+//            } else {
+//                while (nowSendId.load(std::memory_order_acquire) < t->seqId)
+//                    ;
+//                do_send(t, totalLen, buf);
+//
+//                nowSendId.fetch_add(1, std::memory_order_release);
+//            }
 
-                nowSendId.fetch_add(1, std::memory_order_release);
+            auto sin = t->dst->addr;
+
+            bool follow_order = t->seqId != 0;
+            if (follow_order) {
+                uint64_t x;
+                do {
+                    x = nowSendId.load(std::memory_order_acquire);
+                } while (x < t->seqId);
+//                Notice("send since atomic int= %" PRIx64 ", seqId =%" PRIx64 ".", nowSendId.load(), t->seqId);
             }
-        out:
+
+            // do send
+            if (msgLen <= MAX_UDP_MESSAGE_SIZE) {
+//                if (follow_order)
+//                    nowSendId.fetch_add(1, std::memory_order_release);
+                if (sendto(t->fd, buf, msgLen, 0,
+                           (sockaddr *)&sin, sizeof(sin)) < 0) {
+                    PWarning("Failed to send message");
+                    goto out;
+                }
+            } else {
+                msgLen -= sizeof(uint32_t);
+                char *bodyStart = buf + sizeof(uint32_t);
+                int numFrags = ((msgLen - 1) / MAX_UDP_MESSAGE_SIZE) + 1;
+//                Notice("Sending large message in %d fragments", numFrags);
+                Notice("Sending large %s message in %d fragments",
+                       t->m->GetTypeName().c_str(), numFrags);
+
+                for (size_t fragStart = 0; fragStart < msgLen;
+                     fragStart += MAX_UDP_MESSAGE_SIZE) {
+                    size_t fragLen = std::min(msgLen - fragStart,
+                                              MAX_UDP_MESSAGE_SIZE);
+                    size_t fragHeaderLen = 2*sizeof(size_t) + sizeof(uint64_t) + sizeof(uint32_t);
+//                    char fragBuf[fragLen + fragHeaderLen];
+                    char *fragBuf = short_buf;
+                    char *ptr = fragBuf;
+                    *((uint32_t *)ptr) = FRAG_MAGIC;
+                    ptr += sizeof(uint32_t);
+                    *((uint64_t *)ptr) = t->msgId;
+                    ptr += sizeof(uint64_t);
+                    *((size_t *)ptr) = fragStart;
+                    ptr += sizeof(size_t);
+                    *((size_t *)ptr) = msgLen;
+                    ptr += sizeof(size_t);
+                    memcpy(ptr, &bodyStart[fragStart], fragLen);
+
+//                    if (follow_order && fragLen + fragStart == msgLen)
+//                        nowSendId.fetch_add(1, std::memory_order_release);
+
+                    if (sendto(t->fd, fragBuf, fragLen + fragHeaderLen, 0,
+                               (sockaddr *)&(sin), sizeof(sin)) < 0) {
+                        PWarning("Failed to send message fragment %ld",
+                                 fragStart);
+//                        if (follow_order && fragLen + fragStart < msgLen)
+//                            nowSendId.fetch_add(1, std::memory_order_release);
+                        goto out;
+                    }
+                }
+            }
+
+            out:
+            if (follow_order)
+                nowSendId.fetch_add(1, std::memory_order_release);
             delete t;
             t = nullptr;
-            buf = nullptr;
         }
     }
 }
@@ -359,6 +420,9 @@ UDPTransport::UDPTransport(double dropRate, double reorderRate,
 
     token = moodycamel::ProducerToken(taskq);
     int cpu = 0;
+    nowSendId.store(1, std::memory_order_seq_cst);
+    Notice("Init Nowsend id %" PRIx64 ".", nowSendId.load());
+    sleep(1);
     for (int i = 0; i < sendtnum; i++) {
         do {
             cpu = (cpu + 1) % cpunum;
@@ -369,7 +433,6 @@ UDPTransport::UDPTransport(double dropRate, double reorderRate,
         Notice("Starting sender thread %llu", pool.back().get_id());
 //        pool.back().detach();
     }
-    nowSendId.store(1);
 }
 
 UDPTransport::~UDPTransport() {
@@ -909,23 +972,19 @@ UDPTransport::SignalCallback(evutil_socket_t fd, short what, void *arg) {
     transport->JoinWorkers();
 }
 
-bool
+void
 UDPTransport::SendPtrMessageInternal(TransportReceiver *src,
                                   const UDPTransportAddress &dst,
                                   const std::shared_ptr<Message> m,
                                   bool multicast,
-                                  uint64_t sendId) {
-    // Serialize message
-//    char *buf;
-//    size_t msgLen = SerializeMessage(*m, &buf);
+                                  uint64_t queuedMsgId) {
     int fd = fds[src];
 
-    TasktoSend* t = new TasktoSend{fd, dst.clone(), 0, sendId, m};
+    TasktoSend* t = new TasktoSend{fd, dst.clone(), 0, queuedMsgId, m};
     if (m->ByteSizeLong() > MAX_UDP_MESSAGE_SIZE - 1000) {
         t->msgId = ++lastFragMsgId;
     }
     taskq.enqueue(token, t);
-    return true;
 }
 
 void UDPTransport::JoinWorkers() {

@@ -255,7 +255,7 @@ VRReplica::RequestStateTransfer() {
     this->lastRequestStateTransferView = view;
     this->lastRequestStateTransferOpnum = lastCommitted;
 
-    if (!transport->SendPtrMessageToAll(this, m, false)) {
+    if (!transport->SendPtrMessageToAll(this, m, true)) {
         RWarning("Failed to send RequestStateTransfer message to all replicas");
     }
 }
@@ -809,7 +809,7 @@ VRReplica::HandleRequestStateTransfer(const TransportAddress &remote,
     
     log.Dump(msg.opnum()+1, reply->mutable_entries());
 
-    transport->SendPtrMessage(this, remote, reply, false);
+    transport->SendPtrMessage(this, remote, reply, true);
 }
 
 void

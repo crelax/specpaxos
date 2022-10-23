@@ -146,9 +146,8 @@ private:
 
     std::vector<std::thread> pool;
 
-    bool SendPtrMessageInternal(TransportReceiver *src,
-                             const UDPTransportAddress &dst,
-                             const std::shared_ptr<Message> m, bool multicast = false, uint64_t sendId= 0);
+    void SendPtrMessageInternal(TransportReceiver *src, const UDPTransportAddress &dst,
+                                const std::shared_ptr<Message> m, bool multicast = false, uint64_t queuedMsgId = 0);
 
     bool SendMessageInternal(TransportReceiver *src,
                              const UDPTransportAddress &dst,
@@ -183,6 +182,6 @@ private:
 };
 
 
-void do_send(TasktoSend* t, ssize_t msgLen, char* cptr);
+//void do_send(TasktoSend* t, ssize_t msgLen, char* cptr);
 
 #endif  // _LIB_UDPTRANSPORT_H_
