@@ -98,24 +98,4 @@ private:
     timer_callback_t cb;
     int timerId;
 };
-
-// TransportV2 is used for replicas only
-class TransportV2
-{
-protected:
-    typedef ::google::protobuf::Message Message;
-public:
-    virtual ~TransportV2() {}
-    virtual void Register(TransportReceiver *receiver,
-                          const specpaxos::Configuration &config,
-                          int replicaIdx) = 0;
-    virtual bool SendMessage(TransportReceiver *src, const TransportAddress &dst,
-                             const Message &m) = 0;
-    virtual bool SendMessageToReplica(TransportReceiver *src, int replicaIdx, const Message &m) = 0;
-    virtual bool SendMessageToAll(TransportReceiver *src, const Message &m) = 0;
-    virtual int Timer(uint64_t ms, timer_callback_t cb) = 0;
-    virtual bool CancelTimer(int id) = 0;
-    virtual void CancelAllTimers() = 0;
-};
-
 #endif  // _LIB_TRANSPORT_H_

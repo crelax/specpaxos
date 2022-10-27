@@ -39,7 +39,7 @@
 #include <unordered_map>
 
 template <typename ADDR>
-class TransportCommonV2 : public TransportV2
+class TransportCommonV2 : public Transport
 {
 
 public:
