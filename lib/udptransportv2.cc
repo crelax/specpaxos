@@ -1,7 +1,7 @@
 // -*- mode: c++; c-file-style: "k&r"; c-basic-offset: 4 -*-
 /***********************************************************************
  *
- * udptransport.cc:
+ * udptransportv2.cc:
  *   message-passing network interface that uses UDP message delivery
  *   and libasync
  *
@@ -32,7 +32,7 @@
 #include "lib/assert.h"
 #include "lib/configuration.h"
 #include "lib/message.h"
-#include "lib/udptransport.h"
+#include "lib/udptransportv2.h"
 
 #include <google/protobuf/message.h>
 #include <event2/event.h>
@@ -58,8 +58,9 @@ const uint64_t FRAG_MAGIC = 0x20101010;
 
 using std::pair;
 
+
 UDPTransportAddress
-UDPTransport::LookupAddress(const specpaxos::ReplicaAddress &addr) {
+UDPTransportV2::LookupAddress(const specpaxos::ReplicaAddress &addr) {
     int res;
     struct addrinfo hints;
     hints.ai_family = AF_INET;
@@ -81,14 +82,14 @@ UDPTransport::LookupAddress(const specpaxos::ReplicaAddress &addr) {
 }
 
 UDPTransportAddress
-UDPTransport::LookupAddress(const specpaxos::Configuration &config,
+UDPTransportV2::LookupAddress(const specpaxos::Configuration &config,
                             int idx) {
     const specpaxos::ReplicaAddress &addr = config.replica(idx);
     return LookupAddress(addr);
 }
 
 const UDPTransportAddress *
-UDPTransport::LookupMulticastAddress(const specpaxos::Configuration
+UDPTransportV2::LookupMulticastAddress(const specpaxos::Configuration
                                      *config) {
     if (!config->multicast()) {
         // Configuration has no multicast address
@@ -149,7 +150,7 @@ BindToPort(int fd, const string &host, const string &port) {
     }
 }
 
-UDPTransport::UDPTransport(double dropRate, double reorderRate,
+UDPTransportV2::UDPTransportV2(double dropRate, double reorderRate,
                            int dscp, event_base *evbase)
         : dropRate(dropRate), reorderRate(reorderRate),
           dscp(dscp) {
@@ -191,7 +192,7 @@ UDPTransport::UDPTransport(double dropRate, double reorderRate,
     }
 }
 
-UDPTransport::~UDPTransport() {
+UDPTransportV2::~UDPTransportV2() {
     // XXX Shut down libevent?
 
     // for (auto kv : timers) {
@@ -201,71 +202,7 @@ UDPTransport::~UDPTransport() {
 }
 
 void
-UDPTransport::ListenOnMulticastPort(const specpaxos::Configuration
-                                    *canonicalConfig) {
-    if (!canonicalConfig->multicast()) {
-        // No multicast address specified
-        return;
-    }
-
-    if (multicastFds.find(canonicalConfig) != multicastFds.end()) {
-        // We're already listening
-        return;
-    }
-
-    int fd;
-
-    // Create socket
-    if ((fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-        PPanic("Failed to create socket to listen for multicast");
-    }
-
-    // Put it in non-blocking mode
-    if (fcntl(fd, F_SETFL, O_NONBLOCK, 1)) {
-        PWarning("Failed to set O_NONBLOCK on multicast socket");
-    }
-
-    int n = 1;
-    if (setsockopt(fd, SOL_SOCKET,
-                   SO_REUSEADDR, (char *) &n, sizeof(n)) < 0) {
-        PWarning("Failed to set SO_REUSEADDR on multicast socket");
-    }
-
-    // Increase buffer size
-    n = SOCKET_BUF_SIZE;
-    if (setsockopt(fd, SOL_SOCKET,
-                   SO_RCVBUF, (char *) &n, sizeof(n)) < 0) {
-        PWarning("Failed to set SO_RCVBUF on socket");
-    }
-    if (setsockopt(fd, SOL_SOCKET,
-                   SO_SNDBUF, (char *) &n, sizeof(n)) < 0) {
-        PWarning("Failed to set SO_SNDBUF on socket");
-    }
-
-
-    // Bind to the specified address
-    BindToPort(fd,
-               canonicalConfig->multicast()->host,
-               canonicalConfig->multicast()->port);
-
-    // Set up a libevent callback
-    event *ev = event_new(libeventBase, fd,
-                          EV_READ | EV_PERSIST,
-                          SocketCallback, (void *) this);
-    event_add(ev, NULL);
-    listenerEvents.push_back(ev);
-
-    // Record the fd
-    multicastFds[canonicalConfig] = fd;
-    multicastConfigs[fd] = canonicalConfig;
-
-    Notice("Listening for multicast requests on %s:%s",
-           canonicalConfig->multicast()->host.c_str(),
-           canonicalConfig->multicast()->port.c_str());
-}
-
-void
-UDPTransport::Register(TransportReceiver *receiver,
+UDPTransportV2::Register(TransportReceiver *receiver,
                        const specpaxos::Configuration &config,
                        int replicaIdx) {
     ASSERT(replicaIdx < config.n);
@@ -384,7 +321,7 @@ SerializeMessage(const ::google::protobuf::Message &m, char **out) {
 }
 
 bool
-UDPTransport::SendMessageInternalT(TransportReceiver *src,
+UDPTransportV2::SendMessageInternalT(TransportReceiver *src,
                                    const UDPTransportAddress &dst,
                                    const Message &m,
                                    bool multicast) {
@@ -617,7 +554,7 @@ UDPTransport::OnReadable(int fd) {
 }
 
 int
-UDPTransport::Timer(uint64_t ms, timer_callback_t cb) {
+UDPTransportV2::Timer(uint64_t ms, timer_callback_t cb) {
     UDPTransportTimerInfo *info = new UDPTransportTimerInfo();
 
     struct timeval tv;
@@ -640,7 +577,7 @@ UDPTransport::Timer(uint64_t ms, timer_callback_t cb) {
 }
 
 bool
-UDPTransport::CancelTimer(int id) {
+UDPTransportV2::CancelTimer(int id) {
     UDPTransportTimerInfo *info = timers[id];
 
     if (info == NULL) {
@@ -656,7 +593,7 @@ UDPTransport::CancelTimer(int id) {
 }
 
 void
-UDPTransport::CancelAllTimers() {
+UDPTransportV2::CancelAllTimers() {
     while (!timers.empty()) {
         auto kv = timers.begin();
         CancelTimer(kv->first);
@@ -664,7 +601,7 @@ UDPTransport::CancelAllTimers() {
 }
 
 void
-UDPTransport::OnTimer(UDPTransportTimerInfo *info) {
+UDPTransportV2::OnTimer(UDPTransportTimerInfo *info) {
     timers.erase(info->id);
     event_del(info->ev);
     event_free(info->ev);
@@ -675,17 +612,17 @@ UDPTransport::OnTimer(UDPTransportTimerInfo *info) {
 }
 
 void
-UDPTransport::SocketCallback(evutil_socket_t fd, short what, void *arg) {
-    UDPTransport *transport = (UDPTransport *) arg;
+UDPTransportV2::SocketCallback(evutil_socket_t fd, short what, void *arg) {
+    UDPTransportV2 *transport = (UDPTransport *) arg;
     if (what & EV_READ) {
         transport->OnReadable(fd);
     }
 }
 
 void
-UDPTransport::TimerCallback(evutil_socket_t fd, short what, void *arg) {
-    UDPTransport::UDPTransportTimerInfo *info =
-            (UDPTransport::UDPTransportTimerInfo *) arg;
+UDPTransportV2::TimerCallback(evutil_socket_t fd, short what, void *arg) {
+    UDPTransportV2::UDPTransportTimerInfo *info =
+            (UDPTransportV2::UDPTransportTimerInfo *) arg;
 
     ASSERT(what & EV_TIMEOUT);
 
@@ -693,7 +630,7 @@ UDPTransport::TimerCallback(evutil_socket_t fd, short what, void *arg) {
 }
 
 void
-UDPTransport::LogCallback(int severity, const char *msg) {
+UDPTransportV2::LogCallback(int severity, const char *msg) {
     Message_Type msgType;
     switch (severity) {
         case _EVENT_LOG_DEBUG:
@@ -716,14 +653,14 @@ UDPTransport::LogCallback(int severity, const char *msg) {
 }
 
 void
-UDPTransport::FatalCallback(int err) {
+UDPTransportV2::FatalCallback(int err) {
     Panic("Fatal libevent error: %d", err);
 }
 
 void
-UDPTransport::SignalCallback(evutil_socket_t fd, short what, void *arg) {
+UDPTransportV2::SignalCallback(evutil_socket_t fd, short what, void *arg) {
     Notice("Terminating on SIGTERM/SIGINT");
-    UDPTransport *transport = (UDPTransport *) arg;
+    UDPTransportV2 *transport = (UDPTransportV2 *) arg;
     event_base_loopbreak(transport->libeventBase);
 }
 
@@ -782,7 +719,7 @@ bool __SendMessageInternalLarge(int fd, char *buf, size_t msgLen,
 }
 
 bool
-UDPTransport::SendMessageInternal(TransportReceiver *src,
+UDPTransportV2::SendMessageInternal(TransportReceiver *src,
                                   const UDPTransportAddress &dst,
                                   const Message &m,
                                   bool multicast) {

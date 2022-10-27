@@ -29,8 +29,8 @@
  *
  **********************************************************************/
 
-#ifndef _LIB_UDPTRANSPORT_H_
-#define _LIB_UDPTRANSPORT_H_
+#ifndef _LIB_UDPTRANSPORTV2_H_
+#define _LIB_UDPTRANSPORTV2_H_
 
 #include "lib/configuration.h"
 #include "lib/transport.h"
@@ -47,12 +47,13 @@
 #include <netinet/in.h>
 #include <future>
 
-class UDPTransport : public TransportCommon<UDPTransportAddress>
+
+class UDPTransportV2 : public TransportCommonV2<UDPTransportAddress>
 {
 public:
-    UDPTransport(double dropRate = 0.0, double reorderRate = 0.0,
+    UDPTransportV2(double dropRate = 0.0, double reorderRate = 0.0,
                  int dscp = 0, event_base *evbase = nullptr);
-    virtual ~UDPTransport();
+    virtual ~UDPTransportV2();
     void Register(TransportReceiver *receiver,
                   const specpaxos::Configuration &config,
                   int replicaIdx);
@@ -64,7 +65,7 @@ public:
 private:
     struct UDPTransportTimerInfo
     {
-        UDPTransport *transport;
+        UDPTransportV2 *transport;
         timer_callback_t cb;
         event *ev;
         int id;
@@ -81,7 +82,7 @@ private:
         string msgType;
         string message;
         int fd;
-    } reorderBuffer;
+    } v2reorderBuffer;
     int dscp;
 
     event_base *libeventBase;
@@ -94,7 +95,7 @@ private:
     int lastTimerId;
     std::map<int, UDPTransportTimerInfo *> timers;
     uint64_t lastFragMsgId;
-    struct UDPTransportFragInfo
+    struct UDPTransportV2FragInfo
     {
         uint64_t msgId;
         string data;
@@ -114,10 +115,7 @@ private:
     UDPTransportAddress
     LookupAddress(const specpaxos::Configuration &cfg,
                   int replicaIdx);
-    const UDPTransportAddress *
-    LookupMulticastAddress(const specpaxos::Configuration *cfg);
-    void ListenOnMulticastPort(const specpaxos::Configuration
-                               *canonicalConfig);
+
     void OnReadable(int fd);
     void OnTimer(UDPTransportTimerInfo *info);
     static void SocketCallback(evutil_socket_t fd,
@@ -130,4 +128,4 @@ private:
                                short what, void *arg);
 };
 
-#endif  // _LIB_UDPTRANSPORT_H_
+#endif  // _LIB_UDPTRANSPORTV2_H_
