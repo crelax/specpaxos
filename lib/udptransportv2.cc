@@ -33,6 +33,7 @@
 #include "lib/configuration.h"
 #include "lib/message.h"
 #include "lib/udptransportv2.h"
+#include "lib/udptransportaddress.h"
 
 #include <google/protobuf/message.h>
 #include <event2/event.h>
@@ -86,27 +87,6 @@ UDPTransportV2::LookupAddress(const specpaxos::Configuration &config,
                             int idx) {
     const specpaxos::ReplicaAddress &addr = config.replica(idx);
     return LookupAddress(addr);
-}
-
-const UDPTransportAddress *
-UDPTransportV2::LookupMulticastAddress(const specpaxos::Configuration
-                                     *config) {
-    if (!config->multicast()) {
-        // Configuration has no multicast address
-        return NULL;
-    }
-
-    if (multicastFds.find(config) != multicastFds.end()) {
-        // We are listening on this multicast address. Some
-        // implementations of MOM aren't OK with us both sending to
-        // and receiving from the same address, so don't look up the
-        // address.
-        return NULL;
-    }
-
-    UDPTransportAddress *addr =
-            new UDPTransportAddress(LookupAddress(*(config->multicast())));
-    return addr;
 }
 
 static void
@@ -281,11 +261,7 @@ UDPTransportV2::Register(TransportReceiver *receiver,
 
     // If we are registering a replica, check whether we need to set
     // up a socket to listen on the multicast port.
-    //
-    // Don't do this if we're registering a client.
-    if (replicaIdx != -1) {
-        ListenOnMulticastPort(canonicalConfig);
-    }
+    // V2: no need
 }
 
 static size_t
@@ -384,7 +360,7 @@ UDPTransportV2::SendMessageInternalT(TransportReceiver *src,
 }
 
 void
-UDPTransport::Run() {
+UDPTransportV2::Run() {
     event_base_dispatch(libeventBase);
 }
 
@@ -411,7 +387,7 @@ DecodePacket(const char *buf, size_t sz, string &type, string &msg) {
 }
 
 void
-UDPTransport::OnReadable(int fd) {
+UDPTransportV2::OnReadable(int fd) {
     const int BUFSIZE = 65536;
 
     do {
@@ -613,7 +589,7 @@ UDPTransportV2::OnTimer(UDPTransportTimerInfo *info) {
 
 void
 UDPTransportV2::SocketCallback(evutil_socket_t fd, short what, void *arg) {
-    UDPTransportV2 *transport = (UDPTransport *) arg;
+    UDPTransportV2 *transport = (UDPTransportV2 *) arg;
     if (what & EV_READ) {
         transport->OnReadable(fd);
     }

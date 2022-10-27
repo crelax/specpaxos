@@ -384,7 +384,7 @@ SerializeMessage(const ::google::protobuf::Message &m, char **out) {
 }
 
 bool
-UDPTransport::SendMessageInternalT(TransportReceiver *src,
+UDPTransport::SendMessageInternal(TransportReceiver *src,
                                    const UDPTransportAddress &dst,
                                    const Message &m,
                                    bool multicast) {
@@ -725,81 +725,4 @@ UDPTransport::SignalCallback(evutil_socket_t fd, short what, void *arg) {
     Notice("Terminating on SIGTERM/SIGINT");
     UDPTransport *transport = (UDPTransport *) arg;
     event_base_loopbreak(transport->libeventBase);
-}
-
-bool __SendMessageInternal(int fd, char *buf, size_t msgLen, sockaddr_in sin) {
-    if (sendto(fd, buf, msgLen, 0,
-               (sockaddr *) &sin, sizeof(sin)) < 0) {
-        PWarning("Failed to send message");
-        goto fail;
-    }
-
-    delete[] buf;
-    return true;
-
-    fail:
-    delete[] buf;
-    return false;
-}
-
-bool __SendMessageInternalLarge(int fd, char *buf, size_t msgLen,
-                                sockaddr_in sin, uint64_t msgId) {
-    msgLen -= sizeof(uint32_t);
-    char *bodyStart = buf + sizeof(uint32_t);
-    int numFrags = ((msgLen - 1) / MAX_UDP_MESSAGE_SIZE) + 1;
-//        Notice("Sending large message in %d fragments", numFrags);
-    for (size_t fragStart = 0; fragStart < msgLen;
-         fragStart += MAX_UDP_MESSAGE_SIZE) {
-        size_t fragLen = std::min(msgLen - fragStart,
-                                  MAX_UDP_MESSAGE_SIZE);
-        size_t fragHeaderLen = 2 * sizeof(size_t) + sizeof(uint64_t) + sizeof(uint32_t);
-        char fragBuf[fragLen + fragHeaderLen];
-        char *ptr = fragBuf;
-        *((uint32_t *) ptr) = FRAG_MAGIC;
-        ptr += sizeof(uint32_t);
-        *((uint64_t *) ptr) = msgId;
-        ptr += sizeof(uint64_t);
-        *((size_t *) ptr) = fragStart;
-        ptr += sizeof(size_t);
-        *((size_t *) ptr) = msgLen;
-        ptr += sizeof(size_t);
-        memcpy(ptr, &bodyStart[fragStart], fragLen);
-
-        if (sendto(fd, fragBuf, fragLen + fragHeaderLen, 0,
-                   (sockaddr *) &sin, sizeof(sin)) < 0) {
-            PWarning("Failed to send message fragment %ld",
-                     fragStart);
-            goto fail;
-        }
-    }
-
-    delete[] buf;
-    return true;
-
-    fail:
-    delete[] buf;
-    return false;
-}
-
-bool
-UDPTransport::SendMessageInternal(TransportReceiver *src,
-                                  const UDPTransportAddress &dst,
-                                  const Message &m,
-                                  bool multicast) {
-    // Serialize message
-    char *buf;
-    size_t msgLen = SerializeMessage(m, &buf);
-
-    int fd = fds[src];
-
-    if (msgLen <= MAX_UDP_MESSAGE_SIZE) {
-        __SendMessageInternal(fd, buf, msgLen,
-                              dynamic_cast<const UDPTransportAddress &>(dst).addr);
-    } else {
-        uint64_t msgId = ++lastFragMsgId;
-        __SendMessageInternalLarge(fd, buf, msgLen,
-                              dynamic_cast<const UDPTransportAddress &>(dst).addr, msgId);
-    }
-
-    return true;
 }

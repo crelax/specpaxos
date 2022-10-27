@@ -2,8 +2,8 @@ d := $(dir $(lastword $(MAKEFILE_LIST)))
 
 SRCS += $(addprefix $(d), \
 	lookup3.cc message.cc memory.cc \
-	latency.cc configuration.cc transport.cc udptransportaddress.cc \
-	udptransport.cc simtransport.cc transportv2.cc udptransportv2.cc)
+	latency.cc configuration.cc transport.cc udptransport.cc simtransport.cc \
+	udptransportaddress.cc udptransportv2.cc)
 
 PROTOS += $(addprefix $(d), \
           latency-format.proto)
@@ -28,8 +28,6 @@ LIB-udptransportaddress := $(o)udptransportaddress.o $(LIB-transport)
 
 LIB-udptransport := $(o)udptransport.o $(LIB-udptransportaddress) $(LIB-transport)
 
-LIB-transportv2 := $(o)transportv2.o $(LIB-message) $(LIB-configuration)
-
-LIB-udptransportv2 := $(o)udptransportv2.o $(LIB-udptransportaddress) $(LIB-transportv2)
+LIB-udptransportv2 := $(o)udptransportv2.o $(LIB-udptransportaddress) $(LIB-transport)
 
 include $(d)tests/Rules.mk

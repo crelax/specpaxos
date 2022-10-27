@@ -82,7 +82,7 @@ private:
         string msgType;
         string message;
         int fd;
-    } v2reorderBuffer;
+    } reorderBuffer;
     int dscp;
 
     event_base *libeventBase;
@@ -95,7 +95,7 @@ private:
     int lastTimerId;
     std::map<int, UDPTransportTimerInfo *> timers;
     uint64_t lastFragMsgId;
-    struct UDPTransportV2FragInfo
+    struct UDPTransportFragInfo
     {
         uint64_t msgId;
         string data;

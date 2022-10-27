@@ -118,7 +118,7 @@ protected:
     virtual ADDR LookupAddress(const specpaxos::Configuration &cfg,
                                int replicaIdx) = 0;
     virtual const ADDR *
-    LookupMulticastAddress(const specpaxos::Configuration *cfg) = 0;
+    LookupMulticastAddress(const specpaxos::Configuration *cfg) { return nullptr; };
 
     std::unordered_map<specpaxos::Configuration,
             specpaxos::Configuration *> canonicalConfigs;

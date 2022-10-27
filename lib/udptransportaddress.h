@@ -16,6 +16,7 @@ private:
     UDPTransportAddress(const sockaddr_in &addr);
     sockaddr_in addr;
     friend class UDPTransport;
+    friend class UDPTransportV2;
     friend bool operator==(const UDPTransportAddress &a,
                            const UDPTransportAddress &b);
     friend bool operator!=(const UDPTransportAddress &a,

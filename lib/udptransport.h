@@ -105,10 +105,6 @@ private:
                              const UDPTransportAddress &dst,
                              const Message &m, bool multicast = false);
 
-    bool SendMessageInternalT(TransportReceiver *src,
-                             const UDPTransportAddress &dst,
-                             const Message &m, bool multicast = false);
-
     UDPTransportAddress
     LookupAddress(const specpaxos::ReplicaAddress &addr);
     UDPTransportAddress

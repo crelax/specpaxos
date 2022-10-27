@@ -35,6 +35,7 @@
 #include "spec/replica.h"
 #include "unreplicated/replica.h"
 #include "vr/replica.h"
+#include "lib/udptransportv2.h"
 
 #include <unistd.h>
 #include <stdlib.h>
@@ -228,7 +229,7 @@ main(int argc, char **argv)
         Notice("on cpu %d, %d", bindcpu, getpid());
     }
     
-    UDPTransport transport(dropRate, reorderRate, dscp);
+    UDPTransportV2 transport(dropRate, reorderRate, dscp);
 
     specpaxos::Replica *replica;
     switch (proto) {
