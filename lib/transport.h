@@ -32,6 +32,7 @@
 #define _LIB_TRANSPORT_H_
 
 #include "lib/configuration.h"
+#include "lib/message.h"
 
 #include <google/protobuf/message.h>
 #include <functional>
@@ -56,12 +57,39 @@ public:
     virtual void ReceiveMessage(const TransportAddress &remote,
                                 const string &type, const string &data) = 0;
 
+    virtual void ReceiveMessage(const TransportAddress* remote,
+                                const string &type, const string &data) {
+        Panic("Not supposed to be here");
+    };
+
     
 protected:
     const TransportAddress *myAddress;
 };
 
 typedef std::function<void (void)> timer_callback_t;
+
+//class TransportV2
+//{
+//protected:
+//    typedef ::google::protobuf::Message Message;
+//public:
+//    virtual ~TransportV2() {}
+//    virtual void Register(TransportReceiver *receiver,
+//                          const specpaxos::Configuration &config,
+//                          int replicaIdx) = 0;
+//    virtual bool SendMessage(TransportReceiver *src, const TransportAddress &dst,
+//                             const std::shared_ptr<Message> m, bool sequence = true) = 0;
+//
+//    virtual bool SendMessageToReplica(TransportReceiver *src, int replicaIdx, const std::shared_ptr<Message> m,
+//                                      bool sequence = true) = 0;
+//
+//    virtual bool SendMessageToAll(TransportReceiver *src, const std::shared_ptr<Message> m, bool sequence = true) = 0;
+//
+//    virtual int Timer(uint64_t ms, timer_callback_t cb) = 0;
+//    virtual bool CancelTimer(int id) = 0;
+//    virtual void CancelAllTimers() = 0;
+//};
 
 class Transport
 {
@@ -76,7 +104,17 @@ public:
                              const Message &m) = 0;
     virtual bool SendMessageToReplica(TransportReceiver *src, int replicaIdx, const Message &m) = 0;
     virtual bool SendMessageToAll(TransportReceiver *src, const Message &m) = 0;
+
+    virtual bool SendMessage(TransportReceiver *src, const TransportAddress &dst,
+                             const std::shared_ptr<Message> m, bool sequence = true) = 0;
+
+    virtual bool SendMessageToReplica(TransportReceiver *src, int replicaIdx, const std::shared_ptr<Message> m,
+                                      bool sequence = true) = 0;
+
+    virtual bool SendMessageToAll(TransportReceiver *src, const std::shared_ptr<Message> m, bool sequence = true) = 0;
+
     virtual int Timer(uint64_t ms, timer_callback_t cb) = 0;
+    virtual int Timer(uint64_t ms, timer_callback_t cb, string type) { return -10; };
     virtual bool CancelTimer(int id) = 0;
     virtual void CancelAllTimers() = 0;
 };
@@ -85,6 +123,7 @@ class Timeout
 {
 public:
     Timeout(Transport *transport, uint64_t ms, timer_callback_t cb);
+    Timeout(Transport *transport, uint64_t ms, timer_callback_t cb, string type);
     virtual ~Timeout();
     virtual void SetTimeout(uint64_t ms);
     virtual uint64_t Start();
@@ -97,5 +136,6 @@ private:
     uint64_t ms;
     timer_callback_t cb;
     int timerId;
+    string type;
 };
 #endif  // _LIB_TRANSPORT_H_

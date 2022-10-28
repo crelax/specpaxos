@@ -46,19 +46,24 @@
 #include <random>
 #include <netinet/in.h>
 #include <future>
+#include <string>
 
+using HandleMsgQ = moodycamel::ReaderWriterQueue<MsgtoHandle*>;
+using SendMsgQ = moodycamel::ReaderWriterQueue<MsgtoSend*>;
 
 class UDPTransportV2 : public TransportCommonV2<UDPTransportAddress>
 {
 public:
     UDPTransportV2(double dropRate = 0.0, double reorderRate = 0.0,
-                 int dscp = 0, event_base *evbase = nullptr);
+                 int dscp = 0, event_base *evbase = nullptr,
+                 int = 0, int  = 2, int = 4);
     virtual ~UDPTransportV2();
     void Register(TransportReceiver *receiver,
                   const specpaxos::Configuration &config,
                   int replicaIdx);
     void Run();
     int Timer(uint64_t ms, timer_callback_t cb);
+    int Timer(uint64_t ms, timer_callback_t cb, string type);
     bool CancelTimer(int id);
     void CancelAllTimers();
     
@@ -69,6 +74,7 @@ private:
         timer_callback_t cb;
         event *ev;
         int id;
+        string type;
     };
 
     double dropRate;
@@ -82,6 +88,16 @@ private:
         string msgType;
         string message;
         int fd;
+    } reorderBufferv1;
+
+    struct
+    {
+        MsgtoHandle* msg;
+//        UDPTransportAddress *addr;
+//        string msgType;
+//        string message;
+//        int fd;
+        bool valid;
     } reorderBuffer;
     int dscp;
 
@@ -90,9 +106,14 @@ private:
     std::vector<event *> signalEvents;
     std::map<int, TransportReceiver*> receivers; // fd -> receiver
     std::map<TransportReceiver*, int> fds; // receiver -> fd
+
+    TransportReceiver* outstandingReceiver;
+    int replicafd;
+
     std::map<const specpaxos::Configuration *, int> multicastFds;
     std::map<int, const specpaxos::Configuration *> multicastConfigs;
-    int lastTimerId;
+    int _lastTimerId;
+    std::atomic<int> lastTimerId;
     std::map<int, UDPTransportTimerInfo *> timers;
     uint64_t lastFragMsgId;
     struct UDPTransportFragInfo
@@ -102,9 +123,23 @@ private:
     };
     std::map<UDPTransportAddress, UDPTransportFragInfo> fragInfo;
 
-    bool SendMessageInternal(TransportReceiver *src,
-                             const UDPTransportAddress &dst,
-                             const Message &m, bool multicast = false);
+    void SendMessageInternal(TransportReceiver *src, const UDPTransportAddress &dst,
+                                const std::shared_ptr<Message> m, bool multicast = false, bool isseq = false);
+
+    HandleMsgQ handleq;
+    SendMsgQ sendq;
+
+    std::vector<std::thread> senderpool;
+    std::thread actor;
+
+    int cpunum;
+    int loopcpu;
+    int handlecpu;
+    int sendcpu;
+
+    std::set<int> sender_cpu = {};
+    int sendernum = 1;
+    std::set<int> avoid_cpu = {0, 5};
 
     bool SendMessageInternalT(TransportReceiver *src,
                              const UDPTransportAddress &dst,
@@ -126,6 +161,10 @@ private:
     static void FatalCallback(int err);
     static void SignalCallback(evutil_socket_t fd,
                                short what, void *arg);
+
+    void MsgSender(int cpu, SendMsgQ& sendq);
+    void MsgHandler(int cpu, HandleMsgQ& handleq, SendMsgQ& sendq);
+    void JoinWorkers();
 };
 
 #endif  // _LIB_UDPTRANSPORTV2_H_

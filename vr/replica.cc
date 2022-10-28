@@ -78,24 +78,26 @@ VRReplica::VRReplica(Configuration config, int myIdx,
     this->viewChangeTimeout = new Timeout(transport, 5000, [this, myIdx]() {
         RWarning("Have not heard from leader; starting view change");
         StartViewChange(view + 1);
-    });
+    }, "viewChangeTimeout");
     this->nullCommitTimeout = new Timeout(transport, 1000, [this]() {
         SendNullCommit();
-    });
+    }, "nullCommitTimeout");
+    this->lastRequestStateTransferView = 0;
+    this->lastRequestStateTransferOpnum = 0;
     this->stateTransferTimeout = new Timeout(transport, 1000, [this]() {
         this->lastRequestStateTransferView = 0;
         this->lastRequestStateTransferOpnum = 0;
-    });
+    }, "stateTransferTimeout");
     this->stateTransferTimeout->Start();
     this->resendPrepareTimeout = new Timeout(transport, 500, [this]() {
         ResendPrepare();
-    });
+    }, "resendPrepareTimeout");
     this->closeBatchTimeout = new Timeout(transport, 300, [this]() {
         CloseBatch();
-    });
+    }, "closeBatchTimeout");
     this->recoveryTimeout = new Timeout(transport, 5000, [this]() {
         SendRecoveryMessages();
-    });
+    }, "recoveryTimeout");
 
     _Latency_Init(&requestLatency, "request");
     _Latency_Init(&executeAndReplyLatency, "executeAndReply");
@@ -158,12 +160,12 @@ VRReplica::CommitUpTo(opnum_t upto) {
 
         /* Execute it */
         RDebug("Executing request " FMT_OPNUM, lastCommitted);
-        ReplyMessage reply;
-        Execute(lastCommitted, entry->request, reply);
+        auto reply = std::make_shared<ReplyMessage>();
+        Execute(lastCommitted, entry->request, *reply);
 
-        reply.set_view(entry->viewstamp.view);
-        reply.set_opnum(entry->viewstamp.opnum);
-        reply.set_clientreqid(entry->request.clientreqid());
+        reply->set_view(entry->viewstamp.view);
+        reply->set_opnum(entry->viewstamp.opnum);
+        reply->set_clientreqid(entry->request.clientreqid());
 
         /* Mark it as committed */
         log.SetStatus(lastCommitted, LOG_STATE_COMMITTED);
@@ -185,7 +187,7 @@ VRReplica::CommitUpTo(opnum_t upto) {
         /* Send reply */
         auto iter = clientAddresses.find(entry->request.clientid());
         if (iter != clientAddresses.end()) {
-            transport->SendMessage(this, *iter->second, reply);
+            transport->SendMessage(this, *iter->second, reply, false);
         }
 
         Latency_End(&executeAndReplyLatency);
@@ -208,17 +210,17 @@ VRReplica::SendPrepareOKs(opnum_t oldLastOp) {
         ASSERT(entry->state == LOG_STATE_PREPARED);
         UpdateClientTable(entry->request);
 
-        PrepareOKMessage reply;
-        reply.set_view(view);
-        reply.set_opnum(i);
-        reply.set_replicaidx(myIdx);
+        auto reply = std::make_shared<PrepareOKMessage>();
+        reply->set_view(view);
+        reply->set_opnum(i);
+        reply->set_replicaidx(myIdx);
 
         RDebug("Sending PREPAREOK " FMT_VIEWSTAMP " for new uncommitted operation",
-               reply.view(), reply.opnum());
+               reply->view(), reply->opnum());
 
         if (!(transport->SendMessageToReplica(this,
-                                              configuration.GetLeaderIndex(view),
-                                              reply))) {
+                                                 configuration.GetLeaderIndex(view),
+                                                 reply, false))) {
             RWarning("Failed to send PrepareOK message to leader");
         }
     }
@@ -226,9 +228,9 @@ VRReplica::SendPrepareOKs(opnum_t oldLastOp) {
 
 void
 VRReplica::SendRecoveryMessages() {
-    RecoveryMessage m;
-    m.set_replicaidx(myIdx);
-    m.set_nonce(recoveryNonce);
+    auto m = std::make_shared<RecoveryMessage>();
+    m->set_replicaidx(myIdx);
+    m->set_nonce(recoveryNonce);
 
     RNotice("Requesting recovery");
     if (!transport->SendMessageToAll(this, m)) {
@@ -237,8 +239,7 @@ VRReplica::SendRecoveryMessages() {
 }
 
 void
-VRReplica::RequestStateTransfer()
-{
+VRReplica::RequestStateTransfer() {
 
     if ((lastRequestStateTransferOpnum != 0) &&
         (lastRequestStateTransferView == view) &&
@@ -248,16 +249,15 @@ VRReplica::RequestStateTransfer()
         return;
     }
 
-    RequestStateTransferMessage m;
-    m.set_view(view);
-    m.set_opnum(lastCommitted);
-
+    auto m = std::make_shared<RequestStateTransferMessage>();
+    m->set_view(view);
+    m->set_opnum(lastCommitted);
     RNotice("Requesting state transfer: " FMT_VIEWSTAMP, view, lastCommitted);
 
     this->lastRequestStateTransferView = view;
     this->lastRequestStateTransferOpnum = lastCommitted;
 
-    if (!transport->SendMessageToAll(this, m)) {
+    if (!transport->SendMessageToAll(this, m, true)) {
         RWarning("Failed to send RequestStateTransfer message to all replicas");
     }
 }
@@ -301,10 +301,10 @@ VRReplica::StartViewChange(view_t newview) {
     resendPrepareTimeout->Stop();
     closeBatchTimeout->Stop();
 
-    StartViewChangeMessage m;
-    m.set_view(newview);
-    m.set_replicaidx(myIdx);
-    m.set_lastcommitted(lastCommitted);
+    auto m = std::make_shared<StartViewChangeMessage>();
+    m->set_view(newview);
+    m->set_replicaidx(myIdx);
+    m->set_lastcommitted(lastCommitted);
 
     if (!transport->SendMessageToAll(this, m)) {
         RWarning("Failed to send StartViewChange message to all replicas");
@@ -312,10 +312,12 @@ VRReplica::StartViewChange(view_t newview) {
 }
 
 void
-VRReplica::SendNullCommit() {
-    CommitMessage cm;
-    cm.set_view(this->view);
-    cm.set_opnum(this->lastCommitted);
+VRReplica::SendNullCommit()
+{
+    auto cm = std::make_shared<CommitMessage>();
+//    CommitMessage cm;
+    cm->set_view(this->view);
+    cm->set_opnum(this->lastCommitted);
 
     ASSERT(AmLeader());
 
@@ -336,7 +338,7 @@ VRReplica::UpdateClientTable(const Request &req) {
 
     entry.lastReqId = req.clientreqid();
     entry.replied = false;
-    entry.reply.Clear();
+    entry.reply = nullptr;
 }
 
 void
@@ -346,6 +348,7 @@ VRReplica::ResendPrepare() {
         return;
     }
     RNotice("Resending prepare");
+    // false order so as to deliver ASAP
     if (!(transport->SendMessageToAll(this, lastPrepare))) {
         RWarning("Failed to ressend prepare message to all replicas");
     }
@@ -362,13 +365,14 @@ VRReplica::CloseBatch() {
                    " to " FMT_OPNUM,
            batchStart, lastOp);
     /* Send prepare messages */
-    PrepareMessage p;
-    p.set_view(view);
-    p.set_opnum(lastOp);
-    p.set_batchstart(batchStart);
+
+    auto p = std::make_shared<PrepareMessage>();
+    p->set_view(view);
+    p->set_opnum(lastOp);
+    p->set_batchstart(batchStart);
 
     for (opnum_t i = batchStart; i <= lastOp; i++) {
-        Request *r = p.add_request();
+        Request *r = p->add_request();
         const LogEntry *entry = log.Find(i);
         ASSERT(entry != NULL);
         ASSERT(entry->viewstamp.view == view);
@@ -390,6 +394,12 @@ VRReplica::CloseBatch() {
 void
 VRReplica::ReceiveMessage(const TransportAddress &remote,
                           const string &type, const string &data) {
+    Panic("Not supposed to be here");
+}
+
+void
+VRReplica::ReceiveMessage(const TransportAddress* remote,
+                          const string &type, const string &data) {
     static RequestMessage request;
     static UnloggedRequestMessage unloggedRequest;
     static PrepareMessage prepare;
@@ -405,40 +415,40 @@ VRReplica::ReceiveMessage(const TransportAddress &remote,
 
     if (type == request.GetTypeName()) {
         request.ParseFromString(data);
-        HandleRequest(remote, request);
+        HandleRequest(*remote, request);
     } else if (type == unloggedRequest.GetTypeName()) {
         unloggedRequest.ParseFromString(data);
-        HandleUnloggedRequest(remote, unloggedRequest);
+        HandleUnloggedRequest(*remote, unloggedRequest);
     } else if (type == prepare.GetTypeName()) {
         prepare.ParseFromString(data);
-        HandlePrepare(remote, prepare);
+        HandlePrepare(*remote, prepare);
     } else if (type == prepareOK.GetTypeName()) {
         prepareOK.ParseFromString(data);
-        HandlePrepareOK(remote, prepareOK);
+        HandlePrepareOK(*remote, prepareOK);
     } else if (type == commit.GetTypeName()) {
         commit.ParseFromString(data);
-        HandleCommit(remote, commit);
+        HandleCommit(*remote, commit);
     } else if (type == requestStateTransfer.GetTypeName()) {
         requestStateTransfer.ParseFromString(data);
-        HandleRequestStateTransfer(remote, requestStateTransfer);
+        HandleRequestStateTransfer(*remote, requestStateTransfer);
     } else if (type == stateTransfer.GetTypeName()) {
         stateTransfer.ParseFromString(data);
-        HandleStateTransfer(remote, stateTransfer);
+        HandleStateTransfer(*remote, stateTransfer);
     } else if (type == startViewChange.GetTypeName()) {
         startViewChange.ParseFromString(data);
-        HandleStartViewChange(remote, startViewChange);
+        HandleStartViewChange(*remote, startViewChange);
     } else if (type == doViewChange.GetTypeName()) {
         doViewChange.ParseFromString(data);
-        HandleDoViewChange(remote, doViewChange);
+        HandleDoViewChange(*remote, doViewChange);
     } else if (type == startView.GetTypeName()) {
         startView.ParseFromString(data);
-        HandleStartView(remote, startView);
+        HandleStartView(*remote, startView);
     } else if (type == recovery.GetTypeName()) {
         recovery.ParseFromString(data);
-        HandleRecovery(remote, recovery);
+        HandleRecovery(*remote, recovery);
     } else if (type == recoveryResponse.GetTypeName()) {
         recoveryResponse.ParseFromString(data);
-        HandleRecoveryResponse(remote, recoveryResponse);
+        HandleRecoveryResponse(*remote, recoveryResponse);
     } else {
         RPanic("Received unexpected message type in VR proto: %s",
                type.c_str());
@@ -487,7 +497,7 @@ VRReplica::HandleRequest(const TransportAddress &remote,
             if (entry.replied) {
                 RNotice("Received duplicate request; resending reply");
                 if (!(transport->SendMessage(this, remote,
-                                             entry.reply))) {
+                                                entry.reply, false))) {
                     RWarning("Failed to resend reply to client");
                 }
                 Latency_EndType(&requestLatency, 'r');
@@ -513,15 +523,15 @@ VRReplica::HandleRequest(const TransportAddress &remote,
     // Check whether this request should be committed to replicas
     if (!replicate) {
         RDebug("Executing request failed. Not committing to replicas");
-        ReplyMessage reply;
+        auto reply = std::make_shared<ReplyMessage>();
 
-        reply.set_reply(res);
-        reply.set_view(0);
-        reply.set_opnum(0);
-        reply.set_clientreqid(msg.req().clientreqid());
+        reply->set_reply(res);
+        reply->set_view(0);
+        reply->set_opnum(0);
+        reply->set_clientreqid(msg.req().clientreqid());
         cte.replied = true;
         cte.reply = reply;
-        transport->SendMessage(this, remote, reply);
+        transport->SendMessage(this, remote, reply, false);
         Latency_EndType(&requestLatency, 'f');
     } else {
         Request request;
@@ -564,13 +574,14 @@ VRReplica::HandleUnloggedRequest(const TransportAddress &remote,
         return;
     }
 
-    UnloggedReplyMessage reply;
 
-    Debug("Received unlogged request %s", (char *) msg.req().op().c_str());
+    auto reply = std::make_shared<UnloggedReplyMessage>();
 
-    ExecuteUnlogged(msg.req(), reply);
+    Debug("Received unlogged request %s", (char *)msg.req().op().c_str());
 
-    if (!(transport->SendMessage(this, remote, reply)))
+    ExecuteUnlogged(msg.req(), *reply);
+
+    if (!(transport->SendMessage(this, remote, reply, false)))
         Warning("Failed to send reply message");
 }
 
@@ -611,13 +622,13 @@ VRReplica::HandlePrepare(const TransportAddress &remote,
     if (msg.opnum() <= this->lastOp) {
         RDebug("Ignoring PREPARE; already prepared that operation");
         // Resend the prepareOK message
-        PrepareOKMessage reply;
-        reply.set_view(msg.view());
-        reply.set_opnum(msg.opnum());
-        reply.set_replicaidx(myIdx);
+        auto reply = std::make_shared<PrepareOKMessage>();
+        reply->set_view(msg.view());
+        reply->set_opnum(msg.opnum());
+        reply->set_replicaidx(myIdx);
         if (!(transport->SendMessageToReplica(this,
-                                              configuration.GetLeaderIndex(view),
-                                              reply))) {
+                                                 configuration.GetLeaderIndex(view),
+                                                 reply, false))) {
             RWarning("Failed to send PrepareOK message to leader");
         }
         return;
@@ -647,14 +658,15 @@ VRReplica::HandlePrepare(const TransportAddress &remote,
     ASSERT(op == msg.opnum());
 
     /* Build reply and send it to the leader */
-    PrepareOKMessage reply;
-    reply.set_view(msg.view());
-    reply.set_opnum(msg.opnum());
-    reply.set_replicaidx(myIdx);
+//    PrepareOKMessage reply;
+    auto reply = std::make_shared<PrepareOKMessage>();
+    reply->set_view(msg.view());
+    reply->set_opnum(msg.opnum());
+    reply->set_replicaidx(myIdx);
 
     if (!(transport->SendMessageToReplica(this,
-                                          configuration.GetLeaderIndex(view),
-                                          reply))) {
+                                             configuration.GetLeaderIndex(view),
+                                             reply))) {
         RWarning("Failed to send PrepareOK message to leader");
     }
 }
@@ -713,9 +725,9 @@ VRReplica::HandlePrepareOK(const TransportAddress &remote,
          * This can be done asynchronously, so it really ought to be
          * piggybacked on the next PREPARE or something.
          */
-        CommitMessage cm;
-        cm.set_view(this->view);
-        cm.set_opnum(this->lastCommitted);
+        auto cm = std::make_shared<CommitMessage>();
+        cm->set_view(this->view);
+        cm->set_opnum(this->lastCommitted);
 
         if (!(transport->SendMessageToAll(this, cm))) {
             RWarning("Failed to send COMMIT message to all replicas");
@@ -799,13 +811,13 @@ VRReplica::HandleRequestStateTransfer(const TransportAddress &remote,
                     FMT_VIEWSTAMP,
             msg.view(), msg.opnum(), view, lastCommitted);
 
-    StateTransferMessage reply;
-    reply.set_view(view);
-    reply.set_opnum(lastCommitted);
+    auto reply = std::make_shared<StateTransferMessage>();
+    reply->set_view(view);
+    reply->set_opnum(lastCommitted);
 
-    log.Dump(msg.opnum() + 1, reply.mutable_entries());
+    log.Dump(msg.opnum()+1, reply->mutable_entries());
 
-    transport->SendMessage(this, remote, reply);
+    transport->SendMessage(this, remote, reply, true);
 }
 
 void
@@ -826,8 +838,8 @@ VRReplica::HandleStateTransfer(const TransportAddress &remote,
             // Already committed this operation; nothing to be done.
 #if PARANOID
             const LogEntry *entry = log.Find(newEntry.opnum());
-            ASSERT(entry->viewstamp.opnum == newEntry.opnum());
-            ASSERT(entry->viewstamp.view == newEntry.view());
+ASSERT(entry->viewstamp.opnum == newEntry.opnum());
+ASSERT(entry->viewstamp.view == newEntry.view());
 //          ASSERT(entry->request == newEntry.request());
 #endif
         } else if (newEntry.opnum() <= lastOp) {
@@ -878,7 +890,7 @@ VRReplica::HandleStateTransfer(const TransportAddress &remote,
     // Process pending prepares
     std::list<std::pair<TransportAddress *, PrepareMessage> > pending = pendingPrepares;
     pendingPrepares.clear();
-    for (auto & msgpair : pending) {
+    for (auto &msgpair: pendingPrepares) {
         RDebug("Processing pending prepare message");
         HandlePrepare(*msgpair.first, msgpair.second);
         delete msgpair.first;
@@ -916,12 +928,12 @@ VRReplica::HandleStartViewChange(const TransportAddress &remote,
         int leader = configuration.GetLeaderIndex(view);
         // Don't try to send a DoViewChange message to ourselves
         if (leader != myIdx) {
-            DoViewChangeMessage dvc;
-            dvc.set_view(view);
-            dvc.set_lastnormalview(log.LastViewstamp().view);
-            dvc.set_lastop(lastOp);
-            dvc.set_lastcommitted(lastCommitted);
-            dvc.set_replicaidx(myIdx);
+            auto dvc = std::make_shared<DoViewChangeMessage>();
+            dvc->set_view(view);
+            dvc->set_lastnormalview(log.LastViewstamp().view);
+            dvc->set_lastop(lastOp);
+            dvc->set_lastcommitted(lastCommitted);
+            dvc->set_replicaidx(myIdx);
 
             // Figure out how much of the log to include
             opnum_t minCommitted = std::min_element(
@@ -933,7 +945,7 @@ VRReplica::HandleStartViewChange(const TransportAddress &remote,
             minCommitted = std::min(minCommitted, lastCommitted);
 
             log.Dump(minCommitted,
-                     dvc.mutable_entries());
+                     dvc->mutable_entries());
 
             if (!(transport->SendMessageToReplica(this, leader, dvc))) {
                 RWarning("Failed to send DoViewChange message to leader of new view");
@@ -1050,12 +1062,12 @@ VRReplica::HandleDoViewChange(const TransportAddress &remote,
         }
 
         // Send a STARTVIEW message with the new log
-        StartViewMessage sv;
-        sv.set_view(view);
-        sv.set_lastop(lastOp);
-        sv.set_lastcommitted(lastCommitted);
+        auto sv = std::make_shared<StartViewMessage>();
+        sv->set_view(view);
+        sv->set_lastop(lastOp);
+        sv->set_lastcommitted(lastCommitted);
 
-        log.Dump(minCommitted, sv.mutable_entries());
+        log.Dump(minCommitted, sv->mutable_entries());
 
         if (!(transport->SendMessageToAll(this, sv))) {
             RWarning("Failed to send StartView message to all replicas");
@@ -1119,14 +1131,14 @@ VRReplica::HandleRecovery(const TransportAddress &remote,
         return;
     }
 
-    RecoveryResponseMessage reply;
-    reply.set_replicaidx(myIdx);
-    reply.set_view(view);
-    reply.set_nonce(msg.nonce());
+    auto reply = std::make_shared<RecoveryResponseMessage>();
+    reply->set_replicaidx(myIdx);
+    reply->set_view(view);
+    reply->set_nonce(msg.nonce());
     if (AmLeader()) {
-        reply.set_lastcommitted(lastCommitted);
-        reply.set_lastop(lastOp);
-        log.Dump(0, reply.mutable_entries());
+        reply->set_lastcommitted(lastCommitted);
+        reply->set_lastop(lastOp);
+        log.Dump(0, reply->mutable_entries());
     }
 
     if (!(transport->SendMessage(this, remote, reply))) {

@@ -2,8 +2,8 @@
 // Created by xuanhe on 10/27/22.
 //
 
-#ifndef LIB_UDPTRANSPORTADDRESS_H
-#define LIB_UDPTRANSPORTADDRESS_H
+#ifndef _LIB_UDPTRANSPORTADDRESS_H_
+#define _LIB_UDPTRANSPORTADDRESS_H_
 
 #include <netinet/in.h>
 #include "lib/transport.h"
@@ -15,6 +15,8 @@ public:
 private:
     UDPTransportAddress(const sockaddr_in &addr);
     sockaddr_in addr;
+    friend class MsgtoSend;
+    friend class MsgtoHandle;
     friend class UDPTransport;
     friend class UDPTransportV2;
     friend bool operator==(const UDPTransportAddress &a,
@@ -25,4 +27,26 @@ private:
                           const UDPTransportAddress &b);
 };
 
-#endif //LIB_UDPTRANSPORTADDRESS_H
+class MsgtoSend{
+public:
+    int fd;
+    UDPTransportAddress* dst;
+    uint64_t msgId;
+    std::shared_ptr<google::protobuf::Message> m;
+    ~MsgtoSend(){
+        m = nullptr;
+        delete dst;
+    }
+};
+
+class MsgtoHandle{
+public:
+    string type;
+    string data;
+    UDPTransportAddress* src;
+    ~MsgtoHandle(){
+        delete src;
+    }
+};
+
+#endif // _LIB_UDPTRANSPORTADDRESS_H_

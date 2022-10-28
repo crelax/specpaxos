@@ -52,9 +52,14 @@ public:
               Transport *transport, int batchSize,
               AppReplica *app);
     ~VRReplica();
-    
+
     void ReceiveMessage(const TransportAddress &remote,
                         const string &type, const string &data);
+
+    void ReceiveMessage(const TransportAddress *remote,
+                        const string &type, const string &data);
+
+//    void ReceiveMessageLater(const TransportAddress &remote, string &&type, string &&data);
 
 private:
     view_t view;
@@ -64,22 +69,22 @@ private:
     opnum_t lastRequestStateTransferOpnum;
     uint64_t recoveryNonce;
     std::list<std::pair<TransportAddress *,
-                        proto::PrepareMessage> > pendingPrepares;
-    proto::PrepareMessage lastPrepare;
+            proto::PrepareMessage> > pendingPrepares;
+    std::shared_ptr<proto::PrepareMessage> lastPrepare;
     int batchSize;
     opnum_t lastBatchEnd;
     bool batchComplete;
-    
+
     Log log;
     std::map<uint64_t, std::unique_ptr<TransportAddress> > clientAddresses;
     struct ClientTableEntry
     {
         uint64_t lastReqId;
         bool replied;
-        proto::ReplyMessage reply;
+        std::shared_ptr<proto::ReplyMessage> reply;
     };
     std::map<uint64_t, ClientTableEntry> clientTable;
-    
+
     QuorumSet<viewstamp_t, proto::PrepareOKMessage> prepareOKQuorum;
     QuorumSet<view_t, proto::StartViewChangeMessage> startViewChangeQuorum;
     QuorumSet<view_t, proto::DoViewChangeMessage> doViewChangeQuorum;
@@ -107,12 +112,12 @@ private:
     void UpdateClientTable(const Request &req);
     void ResendPrepare();
     void CloseBatch();
-    
+
     void HandleRequest(const TransportAddress &remote,
                        const proto::RequestMessage &msg);
     void HandleUnloggedRequest(const TransportAddress &remote,
                                const proto::UnloggedRequestMessage &msg);
-    
+
     void HandlePrepare(const TransportAddress &remote,
                        const proto::PrepareMessage &msg);
     void HandlePrepareOK(const TransportAddress &remote,

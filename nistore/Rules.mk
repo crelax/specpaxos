@@ -20,6 +20,6 @@ OBJS-ni-client := $(o)request.o $(o)client.o \
 $(d)benchClient: $(OBJS-ni-client) $(o)benchClient.o
 
 $(d)replica: $(o)request.o $(OBJS-ni-store) $(LIB-kvstore) $(LIB-stores) \
-	$(OBJS-spec-replica) $(OBJS-vr-replica) $(OBJS-fastpaxos-replica) $(LIB-udptransport)
+	$(OBJS-spec-replica) $(OBJS-vr-replica) $(OBJS-fastpaxos-replica) $(LIB-udptransportv2)
 
 BINS += $(d)benchClient $(d)replica

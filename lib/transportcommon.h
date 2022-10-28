@@ -34,6 +34,8 @@
 #include "lib/assert.h"
 #include "lib/configuration.h"
 #include "lib/transport.h"
+#include "lib/readerwritercircularbuffer.h"
+#include "lib/readerwriterqueue.h"
 
 #include <map>
 #include <unordered_map>
@@ -58,16 +60,15 @@ public:
 
     virtual bool
     SendMessage(TransportReceiver *src, const TransportAddress &dst,
-                const Message &m)
-    {
+                const std::shared_ptr<Message> m, bool sequence = true) {
         const ADDR &dstAddr = dynamic_cast<const ADDR &>(dst);
-        return SendMessageInternal(src, dstAddr, m, false);
+        SendMessageInternal(src, dstAddr, m, false);
+        return true;
     }
 
     virtual bool
-    SendMessageToReplica(TransportReceiver *src, int replicaIdx,
-                         const Message &m)
-    {
+    SendMessageToReplica(TransportReceiver *src, int replicaIdx, const std::shared_ptr<Message> m,
+                         bool sequence = true) {
         const specpaxos::Configuration *cfg = configurations[src];
         ASSERT(cfg != NULL);
 
@@ -78,12 +79,12 @@ public:
         auto kv = replicaAddresses[cfg].find(replicaIdx);
         ASSERT(kv != replicaAddresses[cfg].end());
 
-        return SendMessageInternal(src, kv->second, m, false);
+        SendMessageInternal(src, kv->second, m, false, sequence);
+        return true;
     }
 
     virtual bool
-    SendMessageToAll(TransportReceiver *src, const Message &m)
-    {
+    SendMessageToAll(TransportReceiver *src, const std::shared_ptr<Message> m, bool sequence = true) {
         const specpaxos::Configuration *cfg = configurations[src];
         ASSERT(cfg != NULL);
 
@@ -91,30 +92,38 @@ public:
             LookupAddresses();
         }
 
-        auto kv = multicastAddresses.find(cfg);
-        if (kv != multicastAddresses.end()) {
-            // Send by multicast if we can
-            return SendMessageInternal(src, kv->second, m, true);
-        } else {
-            // ...or by individual messages to every replica if not
-            const ADDR &srcAddr = dynamic_cast<const ADDR &>(src->GetAddress());
-            for (auto & kv2 : replicaAddresses[cfg]) {
-                if (srcAddr == kv2.second) {
-                    continue;
-                }
-                if (!SendMessageInternal(src, kv2.second, m, false)) {
-                    return false;
-                }
+        // TODO: add outstanding configuration
+
+        // ...or by individual messages to every replica if not
+        const ADDR &srcAddr = dynamic_cast<const ADDR &>(src->GetAddress());
+        for (auto & kv2 : replicaAddresses[cfg]) {
+            if (srcAddr == kv2.second) {
+                continue;
             }
-            return true;
+            SendMessageInternal(src, kv2.second, m, false, sequence);
         }
+        return true;
+    }
+
+    virtual bool SendMessage(TransportReceiver *src, const TransportAddress &dst,
+                             const Message &m) {
+        Panic("Not supposed to call this");
+    }
+
+    virtual bool SendMessageToReplica(TransportReceiver *src, int replicaIdx, const Message &m) {
+        Panic("Not supposed to call this");
+    }
+
+    virtual bool SendMessageToAll(TransportReceiver *src, const Message &m) {
+        Panic("Not supposed to call this");
     }
 
 protected:
-    virtual bool SendMessageInternal(TransportReceiver *src,
-                                     const ADDR &dst,
-                                     const Message &m,
-                                     bool multicast = false) = 0;
+    virtual // v2 only send msg with shard_ptr
+    void SendMessageInternal(TransportReceiver *src, const ADDR &dst,
+                             const std::shared_ptr<Message> m,
+                             bool multicast = false, bool isseq = false) = 0;
+
     virtual ADDR LookupAddress(const specpaxos::Configuration &cfg,
                                int replicaIdx) = 0;
     virtual const ADDR *
@@ -130,6 +139,8 @@ protected:
             std::map<int, TransportReceiver *> > replicaReceivers;
     std::map<const specpaxos::Configuration *, ADDR> multicastAddresses;
     bool replicaAddressesInitialized;
+
+    specpaxos::Configuration *currentConfig = nullptr;
 
     virtual specpaxos::Configuration *
     RegisterConfiguration(TransportReceiver *receiver,
@@ -151,6 +162,9 @@ protected:
 
         // Record configuration
         configurations.insert(std::make_pair(receiver, canonical));
+        if (currentConfig != nullptr)
+            Panic("outstanding config exists for a replica !!");
+        currentConfig = canonical;
 
         // If this is a replica, record the receiver
         if (replicaIdx != -1) {
@@ -215,6 +229,20 @@ public:
         for (auto &kv : canonicalConfigs) {
             delete kv.second;
         }
+    }
+
+    virtual bool SendMessage(TransportReceiver *src, const TransportAddress &dst,
+                             const std::shared_ptr<Message> m, bool sequence = true) {
+        Panic("Not supposed to call this");
+    }
+
+    virtual bool SendMessageToReplica(TransportReceiver *src, int replicaIdx, const std::shared_ptr<Message> m,
+                                      bool sequence = true) {
+        Panic("Not supposed to call this");
+    }
+
+    virtual bool SendMessageToAll(TransportReceiver *src, const std::shared_ptr<Message> m, bool sequence = true) {
+        Panic("Not supposed to call this");
     }
     
     virtual bool

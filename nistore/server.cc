@@ -8,6 +8,7 @@
  **********************************************************************/
 #include "nistore/server.h"
 #include "nistore/request.pb.h"
+#include "lib/udptransportv2.h"
 
 namespace nistore {
 
@@ -214,7 +215,7 @@ main(int argc, char **argv)
         Usage(argv[0]);
     }
 
-    UDPTransport transport(0.0, 0.0, 0);
+    UDPTransportV2 transport(0.0, 0.0, 0, nullptr, 1, 2, 4);
 
     specpaxos::Replica *replica;
     nistore::Server server;
