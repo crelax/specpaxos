@@ -47,8 +47,12 @@
 #include <netinet/in.h>
 #include <future>
 #include <string>
+#include <variant>
 
+using func_handle_msg = std::function<void (MsgtoHandle)>;
 using HandleMsgQ = moodycamel::ReaderWriterQueue<MsgtoHandle*>;
+//using TaskQ = moodycamel::ReaderWriterQueue<TasktoDo>;
+//using CallalbeQ = moodycamel::ReaderWriterQueue<(int)>;
 using SendMsgQ = moodycamel::ReaderWriterQueue<MsgtoSend*>;
 
 class UDPTransportV2 : public TransportCommonV2<UDPTransportAddress>
@@ -63,7 +67,7 @@ public:
                   int replicaIdx);
     void Run();
     int Timer(uint64_t ms, timer_callback_t cb);
-    int Timer(uint64_t ms, timer_callback_t cb, string type);
+//    int Timer(uint64_t ms, timer_callback_t cb, string type);
     bool CancelTimer(int id);
     void CancelAllTimers();
     
@@ -115,6 +119,7 @@ private:
     int _lastTimerId;
     std::atomic<int> lastTimerId;
     std::map<int, UDPTransportTimerInfo *> timers;
+    std::set<int> canceledtimers;
     uint64_t lastFragMsgId;
     struct UDPTransportFragInfo
     {
@@ -126,11 +131,12 @@ private:
     void SendMessageInternal(TransportReceiver *src, const UDPTransportAddress &dst,
                                 const std::shared_ptr<Message> m, bool multicast = false, bool isseq = false);
 
-//    HandleMsgQ handleq;
+    HandleMsgQ handleq;
+//    TaskQ taskq;
     SendMsgQ sendq;
 
     std::vector<std::thread> senderpool;
-//    std::thread actor;
+    std::thread actor;
 
     int cpunum;
     int loopcpu;

@@ -98,29 +98,6 @@ VRReplica::VRReplica(Configuration config, int myIdx,
     this->recoveryTimeout = new Timeout(transport, 5000, [this]() {
         SendRecoveryMessages();
     });
-//    this->viewChangeTimeout = new Timeout(transport, 5000, [this, myIdx]() {
-//        RWarning("Have not heard from leader; starting view change");
-//        StartViewChange(view + 1);
-//    }, "viewChangeTimeout");
-//    this->nullCommitTimeout = new Timeout(transport, 1000, [this]() {
-//        SendNullCommit();
-//    }, "nullCommitTimeout");
-//    this->lastRequestStateTransferView = 0;
-//    this->lastRequestStateTransferOpnum = 0;
-//    this->stateTransferTimeout = new Timeout(transport, 1000, [this]() {
-//        this->lastRequestStateTransferView = 0;
-//        this->lastRequestStateTransferOpnum = 0;
-//    }, "stateTransferTimeout");
-//    this->stateTransferTimeout->Start();
-//    this->resendPrepareTimeout = new Timeout(transport, 500, [this]() {
-//        ResendPrepare();
-//    }, "resendPrepareTimeout");
-//    this->closeBatchTimeout = new Timeout(transport, 300, [this]() {
-//        CloseBatch();
-//    }, "closeBatchTimeout");
-//    this->recoveryTimeout = new Timeout(transport, 5000, [this]() {
-//        SendRecoveryMessages();
-//    }, "recoveryTimeout");
 
     _Latency_Init(&requestLatency, "request");
     _Latency_Init(&executeAndReplyLatency, "executeAndReply");

@@ -135,7 +135,7 @@ UDPTransportV2::UDPTransportV2(double dropRate, double reorderRate,
                           int loopcpu, int handlecpu, int sendcpu)
         : dropRate(dropRate), reorderRate(reorderRate), dscp(dscp),
           loopcpu(loopcpu), handlecpu(handlecpu), sendcpu(sendcpu),
-          sendq(SendMsgQ(100000)) {
+          sendq(SendMsgQ(100000)), handleq(HandleMsgQ (100000)) {
 
 //    lastTimerId = 0;
     lastTimerId.store(0);
@@ -186,7 +186,7 @@ UDPTransportV2::UDPTransportV2(double dropRate, double reorderRate,
     int cpu = 0;
     sleep(1);
 
-//    actor = std::thread(&UDPTransportV2::MsgHandler, this, handlecpu, std::ref(handleq), std::ref(sendq));
+    actor = std::thread(&UDPTransportV2::MsgHandler, this, handlecpu, std::ref(handleq), std::ref(sendq));
 
     Notice("adding thread to send pkgs to cpu %d", sendcpu);
     senderpool.emplace_back(std::thread(&UDPTransportV2::MsgSender, this, sendcpu, std::ref(sendq)));
@@ -536,18 +536,20 @@ UDPTransportV2::OnReadable(int fd) {
     }
 
     // deliver:
-//    while(!handleq.enqueue(m));
+    while(!handleq.enqueue(m));
     // TransportReceiver *receiver = receivers[fd];
     // receiver->ReceiveMessage(senderAddr, msgType, msg);
-    outstandingReceiver->ReceiveMessage(m->src, m->type, m->data);
-    delete m;
+//    outstandingReceiver->ReceiveMessage(m->src, m->type, m->data);
+//    delete m;
 
     if (reorderBuffer.valid) {
-        reorderBuffer.valid = false;
-//        while(!handleq.enqueue(m));
+
+        while(!handleq.enqueue(m));
+//        while(!taskq.enqueue(TasktoDo(m)));
         Debug("Delivering reordered packet of type %s",
               reorderBuffer.msg->type.c_str());
-        delete reorderBuffer.msg;
+//        delete reorderBuffer.msg;
+        reorderBuffer.valid = false;
         reorderBuffer.msg = nullptr;
     }
 }
@@ -573,28 +575,6 @@ UDPTransportV2::Timer(uint64_t ms, timer_callback_t cb) {
     return info->id;
 }
 
-int
-UDPTransportV2::Timer(uint64_t ms, timer_callback_t cb, string type) {
-    UDPTransportTimerInfo *info = new UDPTransportTimerInfo();
-
-    struct timeval tv;
-    tv.tv_sec = ms / 1000;
-    tv.tv_usec = (ms % 1000) * 1000;
-
-    info->transport = this;
-    info->id = lastTimerId.fetch_add(1);;
-    info->cb = cb;
-    info->ev = event_new(libeventBase, -1, 0,
-                         TimerCallback, info);
-    info->type = type;
-
-    timers[info->id] = info;
-
-    event_add(info->ev, &tv);
-
-    return info->id;
-}
-
 
 bool
 UDPTransportV2::CancelTimer(int id) {
@@ -604,11 +584,13 @@ UDPTransportV2::CancelTimer(int id) {
         return false;
     }
 
+//    Notice("erase %d in cancel timer", info->id);
     timers.erase(info->id);
+    canceledtimers.insert(id);
     event_del(info->ev);
     event_free(info->ev);
     delete info;
-
+//    Notice("erase %d in cancel timer done", info->id);
     return true;
 }
 
@@ -622,6 +604,7 @@ UDPTransportV2::CancelAllTimers() {
 
 void
 UDPTransportV2::OnTimer(UDPTransportTimerInfo *info) {
+//    Notice("erase %d in On timer", info->id);
     timers.erase(info->id);
     event_del(info->ev);
     event_free(info->ev);

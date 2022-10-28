@@ -49,4 +49,13 @@ public:
     }
 };
 
+//struct TasktoDo {
+//public:
+//    int flag; // 0: exit, 1: msg, 2: timercall
+//    timer_callback_t tcb;
+//    MsgtoHandle* msg;
+//    explicit TasktoDo(MsgtoHandle* msg): flag(2), tcb(nullptr), msg(msg) {}
+//    explicit TasktoDo(timer_callback_t cb): flag(2), tcb(cb), msg(nullptr) {}
+//};
+
 #endif // _LIB_UDPTRANSPORTADDRESS_H_
