@@ -108,7 +108,7 @@ private:
     std::map<TransportReceiver*, int> fds; // receiver -> fd
 
     TransportReceiver* outstandingReceiver;
-    int replicafd;
+    int outstandingReceiverFd;
 
     std::map<const specpaxos::Configuration *, int> multicastFds;
     std::map<int, const specpaxos::Configuration *> multicastConfigs;
@@ -126,11 +126,11 @@ private:
     void SendMessageInternal(TransportReceiver *src, const UDPTransportAddress &dst,
                                 const std::shared_ptr<Message> m, bool multicast = false, bool isseq = false);
 
-    HandleMsgQ handleq;
+//    HandleMsgQ handleq;
     SendMsgQ sendq;
 
     std::vector<std::thread> senderpool;
-    std::thread actor;
+//    std::thread actor;
 
     int cpunum;
     int loopcpu;

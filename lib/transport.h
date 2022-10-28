@@ -123,7 +123,7 @@ class Timeout
 {
 public:
     Timeout(Transport *transport, uint64_t ms, timer_callback_t cb);
-    Timeout(Transport *transport, uint64_t ms, timer_callback_t cb, string type);
+//    Timeout(Transport *transport, uint64_t ms, timer_callback_t cb, string type);
     virtual ~Timeout();
     virtual void SetTimeout(uint64_t ms);
     virtual uint64_t Start();

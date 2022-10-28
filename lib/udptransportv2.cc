@@ -135,7 +135,7 @@ UDPTransportV2::UDPTransportV2(double dropRate, double reorderRate,
                           int loopcpu, int handlecpu, int sendcpu)
         : dropRate(dropRate), reorderRate(reorderRate), dscp(dscp),
           loopcpu(loopcpu), handlecpu(handlecpu), sendcpu(sendcpu),
-          sendq(SendMsgQ(100000)), handleq(HandleMsgQ(100000)){
+          sendq(SendMsgQ(100000)) {
 
 //    lastTimerId = 0;
     lastTimerId.store(0);
@@ -186,9 +186,9 @@ UDPTransportV2::UDPTransportV2(double dropRate, double reorderRate,
     int cpu = 0;
     sleep(1);
 
-    actor = std::thread(&UDPTransportV2::MsgHandler, this, handlecpu, std::ref(handleq), std::ref(sendq));
+//    actor = std::thread(&UDPTransportV2::MsgHandler, this, handlecpu, std::ref(handleq), std::ref(sendq));
 
-    Notice("adding thread to send pkgs to cpu %d", cpu);
+    Notice("adding thread to send pkgs to cpu %d", sendcpu);
     senderpool.emplace_back(std::thread(&UDPTransportV2::MsgSender, this, sendcpu, std::ref(sendq)));
     Notice("Starting sender thread %llu", senderpool.back().get_id());
 
@@ -296,6 +296,7 @@ UDPTransportV2::Register(TransportReceiver *receiver,
     // Update mappings
     receivers[fd] = receiver;
     outstandingReceiver = receiver;
+    outstandingReceiverFd = fd;
     fds[receiver] = fd;
 
     Notice("Listening on UDP port %hu", ntohs(sin.sin_port));
@@ -446,8 +447,6 @@ UDPTransportV2::OnReadable(int fd) {
         }
     }
 
-
-
     MsgtoHandle *m = new MsgtoHandle();
     UDPTransportAddress *senderAddr = new UDPTransportAddress(sender);
     m->src = senderAddr;
@@ -537,15 +536,19 @@ UDPTransportV2::OnReadable(int fd) {
     }
 
     // deliver:
-    while(!handleq.enqueue(m));
+//    while(!handleq.enqueue(m));
     // TransportReceiver *receiver = receivers[fd];
     // receiver->ReceiveMessage(senderAddr, msgType, msg);
+    outstandingReceiver->ReceiveMessage(m->src, m->type, m->data);
+    delete m;
 
     if (reorderBuffer.valid) {
         reorderBuffer.valid = false;
-        while(!handleq.enqueue(m));
+//        while(!handleq.enqueue(m));
         Debug("Delivering reordered packet of type %s",
-              m->type.c_str());
+              reorderBuffer.msg->type.c_str());
+        delete reorderBuffer.msg;
+        reorderBuffer.msg = nullptr;
     }
 }
 
@@ -743,9 +746,9 @@ UDPTransportV2::SendMessageInternal(TransportReceiver *src,
                                     bool multicast,
                                     bool isseq) {
     // Serialize message
-    int fd = fds[src];
+//    int fd = fds[src];
 
-    MsgtoSend* t = new MsgtoSend{fd, dst.clone(), 0, m};
+    MsgtoSend* t = new MsgtoSend{outstandingReceiverFd, dst.clone(), 0, m};
     if (m->ByteSizeLong() > MAX_UDP_MESSAGE_SIZE - 1000) {
         t->msgId = ++lastFragMsgId;
     }
@@ -806,8 +809,8 @@ UDPTransportV2::SendMessageInternal(TransportReceiver *src,
 //}
 
 void UDPTransportV2::JoinWorkers() {
-    while(!handleq.enqueue(nullptr));
-    actor.join();
+    while(!sendq.enqueue(nullptr));
+//    actor.join();
     for (auto& t : senderpool) {
         t.join();
     }

@@ -54,11 +54,11 @@ Timeout::Timeout(Transport *transport, uint64_t ms, timer_callback_t cb)
     timerId = 0;
 }
 
-Timeout::Timeout(Transport *transport, uint64_t ms, timer_callback_t cb, string type)
-        : transport(transport), ms(ms), cb(cb), type(type)
-{
-    timerId = 0;
-}
+//Timeout::Timeout(Transport *transport, uint64_t ms, timer_callback_t cb, string type)
+//        : transport(transport), ms(ms), cb(cb), type(type)
+//{
+//    timerId = 0;
+//}
 
 Timeout::~Timeout()
 {
@@ -88,7 +88,7 @@ Timeout::Reset()
             timerId = 0;
             Reset();
             cb();
-        }, type);
+        });
     
     return ms;
 }

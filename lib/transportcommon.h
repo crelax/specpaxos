@@ -72,14 +72,15 @@ public:
         const specpaxos::Configuration *cfg = configurations[src];
         ASSERT(cfg != NULL);
 
-        if (!replicaAddressesInitialized) {
-            LookupAddresses();
-        }
-
-        auto kv = replicaAddresses[cfg].find(replicaIdx);
-        ASSERT(kv != replicaAddresses[cfg].end());
-
-        SendMessageInternal(src, kv->second, m, false, sequence);
+//        if (!replicaAddressesInitialized) {
+//            LookupAddresses();
+//        }
+//
+//        auto kv = replicaAddresses[cfg].find(replicaIdx);
+//        ASSERT(kv != replicaAddresses[cfg].end());
+//
+//        SendMessageInternal(src, kv->second, m, false, sequence);
+        SendMessageInternal(src, currentConfigAddresses[replicaIdx], m, false, sequence);
         return true;
     }
 
@@ -88,20 +89,26 @@ public:
         const specpaxos::Configuration *cfg = configurations[src];
         ASSERT(cfg != NULL);
 
-        if (!replicaAddressesInitialized) {
-            LookupAddresses();
-        }
+//        if (!replicaAddressesInitialized) {
+//            LookupAddresses();
+//        }
 
         // TODO: add outstanding configuration
 
-        // ...or by individual messages to every replica if not
-        const ADDR &srcAddr = dynamic_cast<const ADDR &>(src->GetAddress());
-        for (auto & kv2 : replicaAddresses[cfg]) {
-            if (srcAddr == kv2.second) {
+        for (int i = 0; i < currentConfig->n; i++) {
+            if (i == currentIndex)
                 continue;
-            }
-            SendMessageInternal(src, kv2.second, m, false, sequence);
+            SendMessageInternal(src, currentConfigAddresses[i], m, false, sequence);
         }
+
+//        // ...or by individual messages to every replica if not
+//        const ADDR &srcAddr = dynamic_cast<const ADDR &>(src->GetAddress());
+//        for (auto & kv2 : replicaAddresses[cfg]) {
+//            if (srcAddr == kv2.second) {
+//                continue;
+//            }
+//            SendMessageInternal(src, kv2.second, m, false, sequence);
+//        }
         return true;
     }
 
@@ -140,7 +147,9 @@ protected:
     std::map<const specpaxos::Configuration *, ADDR> multicastAddresses;
     bool replicaAddressesInitialized;
 
-    specpaxos::Configuration *currentConfig = nullptr;
+    specpaxos::Configuration* currentConfig = nullptr;
+    std::vector<ADDR> currentConfigAddresses;
+    int currentIndex;
 
     virtual specpaxos::Configuration *
     RegisterConfiguration(TransportReceiver *receiver,
@@ -162,9 +171,13 @@ protected:
 
         // Record configuration
         configurations.insert(std::make_pair(receiver, canonical));
-        if (currentConfig != nullptr)
-            Panic("outstanding config exists for a replica !!");
-        currentConfig = canonical;
+//        if (currentConfig != nullptr)
+//            Panic("outstanding config exists for a replica !!");
+        currentConfig= canonical;
+        for (int i = 0; i < currentConfig->n; i++) {
+            currentConfigAddresses.emplace_back(LookupAddress(config, i));
+        }
+        currentIndex = replicaIdx;
 
         // If this is a replica, record the receiver
         if (replicaIdx != -1) {
