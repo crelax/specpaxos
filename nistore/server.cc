@@ -129,6 +129,7 @@ int
 main(int argc, char **argv)
 {
     int index = -1;
+    int bindcpu = 0;
     const char *configPath = NULL;
     enum {
         PROTO_UNKNOWN,
@@ -141,7 +142,7 @@ main(int argc, char **argv)
 
   // Parse arguments
     int opt;
-    while ((opt = getopt(argc, argv, "c:i:m:")) != -1) {
+    while ((opt = getopt(argc, argv, "c:i:m:p:")) != -1) {
         switch (opt) {
             case 'c':
                 configPath = optarg;
@@ -155,6 +156,19 @@ main(int argc, char **argv)
                 {
                     fprintf(stderr,
                             "option -i requires a numeric arg\n");
+                    Usage(argv[0]);
+                }
+                break;
+            }
+
+            case 'p':
+            {
+                char *strtolPtr;
+                bindcpu = strtoul(optarg, &strtolPtr, 10);
+                if ((*optarg == '\0') || (*strtolPtr != '\0') || (bindcpu < 0))
+                {
+                    fprintf(stderr,
+                            "option -p requires a numeric arg\n");
                     Usage(argv[0]);
                 }
                 break;
@@ -215,7 +229,17 @@ main(int argc, char **argv)
         Usage(argv[0]);
     }
 
-    UDPTransportV2 transport(0.0, 0.0, 0, nullptr, 1, 2, 4);
+
+    {
+        cpu_set_t m;
+        CPU_ZERO(&m);
+        CPU_SET(bindcpu, &m);
+        pthread_setaffinity_np(pthread_self(), sizeof(m), &m);
+//        loopcpu+= bindcpu;
+//        handlecpu += bindcpu;
+//        sendcpu += bindcpu;
+    }
+    UDPTransportV2 transport(0.0, 0.0, 0, nullptr, bindcpu, bindcpu +1, bindcpu + 2);
 
     specpaxos::Replica *replica;
     nistore::Server server;
