@@ -36,6 +36,7 @@
 
 #include <google/protobuf/message.h>
 #include <functional>
+#include <event.h>
 
 class TransportAddress
 {
@@ -112,9 +113,10 @@ public:
                                       bool sequence = true) = 0;
 
     virtual bool SendMessageToAll(TransportReceiver *src, const std::shared_ptr<Message> m, bool sequence = true) = 0;
+    friend class TimeoutV2;
+    virtual event* GenTimerEvent(void * timeout, timer_callback_t t) { return nullptr; }
 
     virtual int Timer(uint64_t ms, timer_callback_t cb) = 0;
-    virtual int Timer(uint64_t ms, timer_callback_t cb, string type) { return -10; };
     virtual bool CancelTimer(int id) = 0;
     virtual void CancelAllTimers() = 0;
 };
@@ -123,7 +125,6 @@ class Timeout
 {
 public:
     Timeout(Transport *transport, uint64_t ms, timer_callback_t cb);
-//    Timeout(Transport *transport, uint64_t ms, timer_callback_t cb, string type);
     virtual ~Timeout();
     virtual void SetTimeout(uint64_t ms);
     virtual uint64_t Start();
@@ -136,6 +137,29 @@ private:
     uint64_t ms;
     timer_callback_t cb;
     int timerId;
-    string type;
+};
+
+class TimeoutV2
+{
+public:
+    TimeoutV2(Transport *transport, uint64_t ms, timer_callback_t cb);
+    virtual ~TimeoutV2();
+    virtual void SetTimeout(uint64_t ms);
+    virtual uint64_t Start();
+    virtual uint64_t Reset();
+    virtual void Stop();
+    virtual bool Active() const;
+    timer_callback_t cb;
+    Transport *transport;
+
+private:
+    uint64_t ms;
+    struct timeval tv{};
+
+    timer_callback_t original_cb;
+    event* ev;
+    bool active = false;
+
+    friend class U;
 };
 #endif  // _LIB_TRANSPORT_H_

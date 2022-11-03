@@ -135,7 +135,7 @@ UDPTransportV2::UDPTransportV2(double dropRate, double reorderRate,
                           int loopcpu, int handlecpu, int sendcpu)
         : dropRate(dropRate), reorderRate(reorderRate), dscp(dscp),
           loopcpu(loopcpu), handlecpu(handlecpu), sendcpu(sendcpu),
-          sendq(SendMsgQ(100000)), handleq(HandleMsgQ (100000)) {
+          sendq(SendQ(100000)), handleq(HandleQ (100000)) {
 
 //    lastTimerId = 0;
     lastTimerId.store(0);
@@ -159,10 +159,16 @@ UDPTransportV2::UDPTransportV2(double dropRate, double reorderRate,
     // for error messages or signals, but that doesn't much matter...
     if (evbase) {
         libeventBase = evbase;
+        // does not work for v2
+        Panic("should not be here");
     } else {
         evthread_use_pthreads();
         libeventBase = event_base_new();
         evthread_make_base_notifiable(libeventBase);
+
+//        recvBase = event_base_new();
+//        evthread_make_base_notifiable(recvBase);
+
     }
 
     // Set up signal handler
@@ -447,11 +453,10 @@ UDPTransportV2::OnReadable(int fd) {
         }
     }
 
-    MsgtoHandle *m = new MsgtoHandle();
-    UDPTransportAddress *senderAddr = new UDPTransportAddress(sender);
-    m->src = senderAddr;
-    string &msgType = m->type;
-    string &msg = m->data;
+    MsgOrCB *m = new MsgOrCB(new UDPTransportAddress(sender));
+//    m->src = senderAddr;
+//    string &msgType = m->type;
+//    string &msg = m->data;
 
     // Take a peek at the first field. If it's all zeros, this is
     // a fragment. Otherwise, we can decode it directly.
@@ -460,7 +465,7 @@ UDPTransportV2::OnReadable(int fd) {
     if (magic == NONFRAG_MAGIC) {
         // Not a fragment. Decode the packet
         DecodePacket(buf + sizeof(uint32_t), sz - sizeof(uint32_t),
-                     msgType, msg);
+                     m->type, m->data);
     } else if (magic == FRAG_MAGIC) {
         // This is a fragment. Decode the header
         const char *ptr = buf;
@@ -479,7 +484,7 @@ UDPTransportV2::OnReadable(int fd) {
                                                     MAX_UDP_MESSAGE_SIZE));
         Notice("Received fragment of %zd byte packet %" PRIx64 " starting at %zd",
                msgLen, msgId, fragStart);
-        UDPTransportFragInfo &info = fragInfo[*senderAddr];
+        UDPTransportFragInfo &info = fragInfo[*m->src];
         if (info.msgId == 0) {
             info.msgId = msgId;
             info.data.clear();
@@ -502,7 +507,7 @@ UDPTransportV2::OnReadable(int fd) {
         if (info.data.size() == msgLen) {
             Debug("Completed packet reconstruction");
             DecodePacket(info.data.c_str(), info.data.size(),
-                         msgType, msg);
+                         m->type, m->data);
             info.msgId = 0;
             info.data.clear();
         } else {
@@ -517,23 +522,23 @@ UDPTransportV2::OnReadable(int fd) {
         double roll = uniformDist(randomEngine);
         if (roll < dropRate) {
             Debug("Simulating packet drop of message type %s",
-                  msgType.c_str());
+                  m->type.c_str());
             delete m;
             return;
         }
     }
-
-    if (!reorderBuffer.valid && (reorderRate > 0.0)) {
-        double roll = uniformDist(randomEngine);
-        if (roll < reorderRate) {
-            Debug("Simulating reorder of message type %s",
-                  msgType.c_str());
-            ASSERT(!reorderBuffer.valid);
-            reorderBuffer.valid = true;
-            reorderBuffer.msg = m;
-            return;
-        }
-    }
+//
+//    if (!reorderBuffer.valid && (reorderRate > 0.0)) {
+//        double roll = uniformDist(randomEngine);
+//        if (roll < reorderRate) {
+//            Debug("Simulating reorder of message type %s",
+//                  m->type.c_str());
+//            ASSERT(!reorderBuffer.valid);
+//            reorderBuffer.valid = true;
+//            reorderBuffer.msg = m;
+//            return;
+//        }
+//    }
 
     // deliver:
     while(!handleq.enqueue(m));
@@ -542,16 +547,16 @@ UDPTransportV2::OnReadable(int fd) {
 //    outstandingReceiver->ReceiveMessage(m->src, m->type, m->data);
 //    delete m;
 
-    if (reorderBuffer.valid) {
-
-        while(!handleq.enqueue(m));
-//        while(!taskq.enqueue(TasktoDo(m)));
-        Debug("Delivering reordered packet of type %s",
-              reorderBuffer.msg->type.c_str());
-//        delete reorderBuffer.msg;
-        reorderBuffer.valid = false;
-        reorderBuffer.msg = nullptr;
-    }
+//    if (reorderBuffer.valid) {
+//
+//        while(!handleq.enqueue(m));
+////        while(!taskq.enqueue(TasktoDo(m)));
+//        Debug("Delivering reordered packet of type %s",
+//              reorderBuffer.msg->type.c_str());
+////        delete reorderBuffer.msg;
+//        reorderBuffer.valid = false;
+//        reorderBuffer.msg = nullptr;
+//    }
 }
 
 int
@@ -575,6 +580,11 @@ UDPTransportV2::Timer(uint64_t ms, timer_callback_t cb) {
     return info->id;
 }
 
+event*
+UDPTransportV2::GenTimerEvent(void *t, timer_callback_t cb) {
+    TimeoutV2 * timeoutV2 = (TimeoutV2 *) t;
+    return event_new(this->libeventBase, -1, 0, UDPTransportV2::TimerCallbackV2, timeoutV2);
+}
 
 bool
 UDPTransportV2::CancelTimer(int id) {
@@ -583,6 +593,8 @@ UDPTransportV2::CancelTimer(int id) {
     if (info == NULL) {
         return false;
     }
+
+    Panic("Not supposed to be here to cancel timer");
 
 //    Notice("erase %d in cancel timer", info->id);
     timers.erase(info->id);
@@ -604,14 +616,19 @@ UDPTransportV2::CancelAllTimers() {
 
 void
 UDPTransportV2::OnTimer(UDPTransportTimerInfo *info) {
-//    Notice("erase %d in On timer", info->id);
+    Panic("Not supposed to be here;");
     timers.erase(info->id);
     event_del(info->ev);
     event_free(info->ev);
 
     info->cb();
-
     delete info;
+}
+
+void
+UDPTransportV2::OnTimerV2(TimeoutV2 *t) {
+    // enqueue a call back
+    this->handleq.emplace(new MsgOrCB(true, t->cb));
 }
 
 void
@@ -626,10 +643,17 @@ void
 UDPTransportV2::TimerCallback(evutil_socket_t fd, short what, void *arg) {
     UDPTransportV2::UDPTransportTimerInfo *info =
             (UDPTransportV2::UDPTransportTimerInfo *) arg;
-
+    Panic("Not supposed to be here;");
     ASSERT(what & EV_TIMEOUT);
 
     info->transport->OnTimer(info);
+}
+
+void
+UDPTransportV2::TimerCallbackV2(evutil_socket_t fd, short what, void* arg) {
+    TimeoutV2 *t = (TimeoutV2 *) arg;
+    ASSERT(what & EV_TIMEOUT);
+    ((UDPTransportV2*)t->transport)->OnTimerV2(t);
 }
 
 void
@@ -668,59 +692,6 @@ UDPTransportV2::SignalCallback(evutil_socket_t fd, short what, void *arg) {
     transport->JoinWorkers();
 }
 
-//bool __SendMessageInternal(int fd, char *buf, size_t msgLen, sockaddr_in sin) {
-//    if (sendto(fd, buf, msgLen, 0,
-//               (sockaddr *) &sin, sizeof(sin)) < 0) {
-//        PWarning("Failed to send message");
-//        goto fail;
-//    }
-//
-//    delete[] buf;
-//    return true;
-//
-//    fail:
-//    delete[] buf;
-//    return false;
-//}
-//
-//bool __SendMessageInternalLarge(int fd, char *buf, size_t msgLen,
-//                                sockaddr_in sin, uint64_t msgId) {
-//    msgLen -= sizeof(uint32_t);
-//    char *bodyStart = buf + sizeof(uint32_t);
-//    int numFrags = ((msgLen - 1) / MAX_UDP_MESSAGE_SIZE) + 1;
-////        Notice("Sending large message in %d fragments", numFrags);
-//    for (size_t fragStart = 0; fragStart < msgLen;
-//         fragStart += MAX_UDP_MESSAGE_SIZE) {
-//        size_t fragLen = std::min(msgLen - fragStart,
-//                                  MAX_UDP_MESSAGE_SIZE);
-//        size_t fragHeaderLen = 2 * sizeof(size_t) + sizeof(uint64_t) + sizeof(uint32_t);
-//        char fragBuf[fragLen + fragHeaderLen];
-//        char *ptr = fragBuf;
-//        *((uint32_t *) ptr) = FRAG_MAGIC;
-//        ptr += sizeof(uint32_t);
-//        *((uint64_t *) ptr) = msgId;
-//        ptr += sizeof(uint64_t);
-//        *((size_t *) ptr) = fragStart;
-//        ptr += sizeof(size_t);
-//        *((size_t *) ptr) = msgLen;
-//        ptr += sizeof(size_t);
-//        memcpy(ptr, &bodyStart[fragStart], fragLen);
-//
-//        if (sendto(fd, fragBuf, fragLen + fragHeaderLen, 0,
-//                   (sockaddr *) &sin, sizeof(sin)) < 0) {
-//            PWarning("Failed to send message fragment %ld",
-//                     fragStart);
-//            goto fail;
-//        }
-//    }
-//
-//    delete[] buf;
-//    return true;
-//
-//    fail:
-//    delete[] buf;
-//    return false;
-//}
 
 void
 UDPTransportV2::SendMessageInternal(TransportReceiver *src,
@@ -731,76 +702,26 @@ UDPTransportV2::SendMessageInternal(TransportReceiver *src,
     // Serialize message
 //    int fd = fds[src];
 
-    MsgtoSend* t = new MsgtoSend{outstandingReceiverFd, dst.clone(), 0, m};
+    uint64_t msgId = 0;
+//    MsgtoSend* t = new MsgtoSend{};
     if (m->ByteSizeLong() > MAX_UDP_MESSAGE_SIZE - 1000) {
-        t->msgId = ++lastFragMsgId;
+        msgId = ++lastFragMsgId;
     }
-    while (!sendq.enqueue(t));
-//    if (isseq)
-//        sequential_taskq.enqueue(t);
-//    else
-//        random_taskq.enqueue(t);
+    while (!sendq.enqueue(new MsgtoSend (outstandingReceiverFd, dst.clone(), msgId, std::move(m))));
 }
 
-//
-//void do_send(MsgtoSend* t, ssize_t msgLen, char* cptr) {
-//    char *buf = cptr;
-//    auto sin = t->dst->addr;
-//    //    auto msgLen = t->msgLe;
-//    if (msgLen <= MAX_UDP_MESSAGE_SIZE) {
-//        if (sendto(t->fd, buf, msgLen, 0,
-//                   (sockaddr *)&sin, sizeof(sin)) < 0) {
-//            PWarning("Failed to send message");
-//            goto out;
-//        }
-//    } else {
-//        msgLen -= sizeof(uint32_t);
-//        char *bodyStart = buf + sizeof(uint32_t);
-//        int numFrags = ((msgLen - 1) / MAX_UDP_MESSAGE_SIZE) + 1;
-//        Notice("Sending large message in %d fragments", numFrags);
-//
-//        for (size_t fragStart = 0; fragStart < msgLen;
-//             fragStart += MAX_UDP_MESSAGE_SIZE) {
-//            size_t fragLen = std::min(msgLen - fragStart,
-//                                      MAX_UDP_MESSAGE_SIZE);
-//            size_t fragHeaderLen = 2*sizeof(size_t) + sizeof(uint64_t) + sizeof(uint32_t);
-//            char fragBuf[fragLen + fragHeaderLen];
-//            char *ptr = fragBuf;
-//            *((uint32_t *)ptr) = FRAG_MAGIC;
-//            ptr += sizeof(uint32_t);
-//            *((uint64_t *)ptr) = t->msgId;
-//            ptr += sizeof(uint64_t);
-//            *((size_t *)ptr) = fragStart;
-//            ptr += sizeof(size_t);
-//            *((size_t *)ptr) = msgLen;
-//            ptr += sizeof(size_t);
-//            memcpy(ptr, &bodyStart[fragStart], fragLen);
-//
-//            if (sendto(t->fd, fragBuf, fragLen + fragHeaderLen, 0,
-//                       (sockaddr *)&(sin), sizeof(sin)) < 0) {
-//                PWarning("Failed to send message fragment %ld",
-//                         fragStart);
-//                goto out;
-//            }
-//        }
-//    }
-//
-//    out:
-//    //    delete dst;
-//    //    delete[] buf;
-//    return;
-//}
-
 void UDPTransportV2::JoinWorkers() {
-    while(!sendq.enqueue(nullptr));
+    while(!handleq.enqueue(nullptr));
+//    while(!sendq.emplace(MsgtoSend(-1)));
 //    actor.join();
     for (auto& t : senderpool) {
         t.join();
     }
+    actor.join();
 }
 
 void
-UDPTransportV2::MsgHandler(int cpu, HandleMsgQ& recvq, SendMsgQ& sendq) {
+UDPTransportV2::MsgHandler(int cpu, HandleQ& recvq, SendQ& sendq) {
     if (cpu >= 0) {
         cpu_set_t mask;
         CPU_ZERO(&mask);
@@ -808,12 +729,12 @@ UDPTransportV2::MsgHandler(int cpu, HandleMsgQ& recvq, SendMsgQ& sendq) {
         pthread_setaffinity_np(pthread_self(), sizeof(mask), &mask);
     }
 
-    MsgtoHandle* msg;
+    MsgOrCB* task;
     while(true) {
-        if (!recvq.try_dequeue(msg))
+        if (!recvq.try_dequeue(task))
             continue;
 
-        if (msg == nullptr) {
+        if (task == nullptr) {
             Notice("Handler received signal to quit");
             while(!sendq.enqueue(nullptr));
             //
@@ -823,14 +744,21 @@ UDPTransportV2::MsgHandler(int cpu, HandleMsgQ& recvq, SendMsgQ& sendq) {
 //        TransportReceiver *receiver = receivers[fd];
 //        receiver->ReceiveMessage(senderAddr, msgType, msg);
 
-        outstandingReceiver->ReceiveMessage(msg->src, msg->type, msg->data);
-        delete msg;
-        msg = nullptr;
+        if (task->iscb) {
+            task->cb();
+            delete task;
+            task = nullptr;
+            continue;
+        }
+
+        outstandingReceiver->ReceiveMessage(task->src, task->type, task->data);
+        delete task;
+        task = nullptr;
     }
 }
 
 void
-UDPTransportV2::MsgSender(int cpu, SendMsgQ& sendq) {
+UDPTransportV2::MsgSender(int cpu, SendQ& sendq) {
     if (cpu >= 0) {
         cpu_set_t mask;
         CPU_ZERO(&mask);

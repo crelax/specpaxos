@@ -31,6 +31,10 @@
 #include "lib/assert.h"
 #include "lib/transport.h"
 
+#include <event.h>
+
+#include <utility>
+
 TransportReceiver::~TransportReceiver()
 {
     delete this->myAddress;
@@ -48,17 +52,89 @@ TransportReceiver::GetAddress()
     return *(this->myAddress);
 }
 
+TimeoutV2::TimeoutV2(Transport *_transport, uint64_t _ms, timer_callback_t _cb)
+        : transport(_transport), ms(_ms), original_cb(std::move(_cb)), active(false) {
+
+    tv.tv_sec = ms / 1000;
+    tv.tv_usec = (ms % 1000) * 1000;
+
+    cb = [this]{
+        active = false;
+        Reset();
+        original_cb();
+    };
+
+    ev = transport->GenTimerEvent(this, [this](){
+        this->Reset();
+        this->cb();
+    });
+}
+
+TimeoutV2::~TimeoutV2()
+{
+    Stop();
+    event_del(ev);
+    event_free(ev);
+}
+
+void
+TimeoutV2::SetTimeout(uint64_t ms)
+{
+    ASSERT(!Active());
+    this->ms = ms;
+    tv.tv_sec = ms / 1000;
+    tv.tv_usec = (ms % 1000) * 1000;
+    event_del(ev);
+    ev = transport->GenTimerEvent(this, [this](){
+        active = false;
+        this->Reset();
+        cb();
+    });
+}
+
+uint64_t
+TimeoutV2::Start()
+{
+    return this->Reset();
+}
+
+
+uint64_t
+TimeoutV2::Reset()
+{
+    Stop();
+
+    event_add(ev, &tv);
+    active = true;
+
+    return ms;
+}
+
+void
+TimeoutV2::Stop()
+{
+    if (!active)
+        return;
+
+    event_del(ev);
+
+    active = false;
+}
+
+bool
+TimeoutV2::Active() const
+{
+    return ev != nullptr && active;
+}
+
+
+// Timeout V1
+
 Timeout::Timeout(Transport *transport, uint64_t ms, timer_callback_t cb)
     : transport(transport), ms(ms), cb(cb)
 {
     timerId = 0;
 }
-
-//Timeout::Timeout(Transport *transport, uint64_t ms, timer_callback_t cb, string type)
-//        : transport(transport), ms(ms), cb(cb), type(type)
-//{
-//    timerId = 0;
-//}
 
 Timeout::~Timeout()
 {

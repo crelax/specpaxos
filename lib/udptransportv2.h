@@ -49,11 +49,11 @@
 #include <string>
 #include <variant>
 
-using func_handle_msg = std::function<void (MsgtoHandle)>;
-using HandleMsgQ = moodycamel::ReaderWriterQueue<MsgtoHandle*>;
+//using func_handle_msg = std::function<void (MsgOrCB)>;
+using HandleQ = moodycamel::ReaderWriterQueue<MsgOrCB*>;
 //using TaskQ = moodycamel::ReaderWriterQueue<TasktoDo>;
 //using CallalbeQ = moodycamel::ReaderWriterQueue<(int)>;
-using SendMsgQ = moodycamel::ReaderWriterQueue<MsgtoSend*>;
+using SendQ = moodycamel::ReaderWriterQueue<MsgtoSend*>;
 
 class UDPTransportV2 : public TransportCommonV2<UDPTransportAddress>
 {
@@ -67,11 +67,21 @@ public:
                   int replicaIdx);
     void Run();
     int Timer(uint64_t ms, timer_callback_t cb);
+    event* GenTimerEvent(void *t, timer_callback_t cb);
 //    int Timer(uint64_t ms, timer_callback_t cb, string type);
     bool CancelTimer(int id);
     void CancelAllTimers();
     
 private:
+
+
+    struct UDPTransportTimerInfoV2
+    {
+        UDPTransportV2 *transport;
+        timer_callback_t cb;
+        event *ev;
+    };
+
     struct UDPTransportTimerInfo
     {
         UDPTransportV2 *transport;
@@ -92,20 +102,21 @@ private:
         string msgType;
         string message;
         int fd;
-    } reorderBufferv1;
-
-    struct
-    {
-        MsgtoHandle* msg;
-//        UDPTransportAddress *addr;
-//        string msgType;
-//        string message;
-//        int fd;
-        bool valid;
     } reorderBuffer;
+
+//    struct
+//    {
+//        * msg;
+////        UDPTransportAddress *addr;
+////        string msgType;
+////        string message;
+////        int fd;
+//        bool valid;
+//    } reorderBuffer;
     int dscp;
 
     event_base *libeventBase;
+    event_base *timerBase;
     std::vector<event *> listenerEvents;
     std::vector<event *> signalEvents;
     std::map<int, TransportReceiver*> receivers; // fd -> receiver
@@ -116,7 +127,7 @@ private:
 
     std::map<const specpaxos::Configuration *, int> multicastFds;
     std::map<int, const specpaxos::Configuration *> multicastConfigs;
-    int _lastTimerId;
+//    std::mutex timeermx;
     std::atomic<int> lastTimerId;
     std::map<int, UDPTransportTimerInfo *> timers;
     std::set<int> canceledtimers;
@@ -131,9 +142,9 @@ private:
     void SendMessageInternal(TransportReceiver *src, const UDPTransportAddress &dst,
                                 const std::shared_ptr<Message> m, bool multicast = false, bool isseq = false);
 
-    HandleMsgQ handleq;
+    HandleQ handleq;
 //    TaskQ taskq;
-    SendMsgQ sendq;
+    SendQ sendq;
 
     std::vector<std::thread> senderpool;
     std::thread actor;
@@ -159,17 +170,19 @@ private:
 
     void OnReadable(int fd);
     void OnTimer(UDPTransportTimerInfo *info);
+    void OnTimerV2(TimeoutV2 *t);
     static void SocketCallback(evutil_socket_t fd,
                                short what, void *arg);
     static void TimerCallback(evutil_socket_t fd,
                               short what, void *arg);
+    static void TimerCallbackV2(evutil_socket_t fd, short what, void* arg);
     static void LogCallback(int severity, const char *msg);
     static void FatalCallback(int err);
     static void SignalCallback(evutil_socket_t fd,
                                short what, void *arg);
 
-    void MsgSender(int cpu, SendMsgQ& sendq);
-    void MsgHandler(int cpu, HandleMsgQ& handleq, SendMsgQ& sendq);
+    void MsgSender(int cpu, SendQ & sendq);
+    void MsgHandler(int cpu, HandleQ& handleq, SendQ& sendq);
     void JoinWorkers();
 };
 

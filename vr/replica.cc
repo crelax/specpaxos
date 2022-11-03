@@ -75,27 +75,27 @@ VRReplica::VRReplica(Configuration config, int myIdx,
         Notice("Batching enabled; batch size %d", batchSize);
     }
 
-    this->viewChangeTimeout = new Timeout(transport, 5000, [this, myIdx]() {
+    this->viewChangeTimeout = new TimeoutV2(transport, 5000, [this, myIdx]() {
         RWarning("Have not heard from leader; starting view change");
         StartViewChange(view + 1);
     });
-    this->nullCommitTimeout = new Timeout(transport, 1000, [this]() {
+    this->nullCommitTimeout = new TimeoutV2(transport, 1000, [this]() {
         SendNullCommit();
     });
     this->lastRequestStateTransferView = 0;
     this->lastRequestStateTransferOpnum = 0;
-    this->stateTransferTimeout = new Timeout(transport, 1000, [this]() {
+    this->stateTransferTimeout = new TimeoutV2(transport, 1000, [this]() {
         this->lastRequestStateTransferView = 0;
         this->lastRequestStateTransferOpnum = 0;
     });
     this->stateTransferTimeout->Start();
-    this->resendPrepareTimeout = new Timeout(transport, 500, [this]() {
+    this->resendPrepareTimeout = new TimeoutV2(transport, 500, [this]() {
         ResendPrepare();
     });
-    this->closeBatchTimeout = new Timeout(transport, 300, [this]() {
+    this->closeBatchTimeout = new TimeoutV2(transport, 300, [this]() {
         CloseBatch();
     });
-    this->recoveryTimeout = new Timeout(transport, 5000, [this]() {
+    this->recoveryTimeout = new TimeoutV2(transport, 5000, [this]() {
         SendRecoveryMessages();
     });
 
@@ -187,7 +187,7 @@ VRReplica::CommitUpTo(opnum_t upto) {
         /* Send reply */
         auto iter = clientAddresses.find(entry->request.clientid());
         if (iter != clientAddresses.end()) {
-            transport->SendMessage(this, *iter->second, reply, false);
+            transport->SendMessage(this, *iter->second, std::move(reply), false);
         }
 
         Latency_End(&executeAndReplyLatency);
@@ -356,8 +356,14 @@ VRReplica::ResendPrepare() {
 
 void
 VRReplica::CloseBatch() {
+    if (!AmLeader())
+        return;
     ASSERT(AmLeader());
-    ASSERT(lastBatchEnd < lastOp);
+//    ASSERT(lastBatchEnd < lastOp);
+
+    // todo: if not, return.
+    if (lastBatchEnd >= lastOp)
+        return;
 
     opnum_t batchStart = lastBatchEnd + 1;
 
@@ -531,7 +537,7 @@ VRReplica::HandleRequest(const TransportAddress &remote,
         reply->set_clientreqid(msg.req().clientreqid());
         cte.replied = true;
         cte.reply = reply;
-        transport->SendMessage(this, remote, reply, false);
+        transport->SendMessage(this, remote, std::move(reply), false);
         Latency_EndType(&requestLatency, 'f');
     } else {
         Request request;

@@ -90,12 +90,12 @@ private:
     QuorumSet<view_t, proto::DoViewChangeMessage> doViewChangeQuorum;
     QuorumSet<uint64_t, proto::RecoveryResponseMessage> recoveryResponseQuorum;
 
-    Timeout *viewChangeTimeout;
-    Timeout *nullCommitTimeout;
-    Timeout *stateTransferTimeout;
-    Timeout *resendPrepareTimeout;
-    Timeout *closeBatchTimeout;
-    Timeout *recoveryTimeout;
+    TimeoutV2 *viewChangeTimeout;
+    TimeoutV2 *nullCommitTimeout;
+    TimeoutV2 *stateTransferTimeout;
+    TimeoutV2 *resendPrepareTimeout;
+    TimeoutV2 *closeBatchTimeout;
+    TimeoutV2 *recoveryTimeout;
 
     Latency_t requestLatency;
     Latency_t executeAndReplyLatency;

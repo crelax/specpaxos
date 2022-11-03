@@ -28,7 +28,12 @@ private:
 };
 
 class MsgtoSend{
+    using sprtMsg = std::shared_ptr<google::protobuf::Message>;
 public:
+    explicit MsgtoSend(int fd, UDPTransportAddress* dst, uint64_t msgId, sprtMsg m)
+        :fd(fd), dst(dst), msgId(msgId), m(std::move(m)){}
+    explicit MsgtoSend()
+            :fd(0), dst(nullptr), msgId(0), m(nullptr){};
     int fd;
     UDPTransportAddress* dst;
     uint64_t msgId;
@@ -39,12 +44,21 @@ public:
     }
 };
 
-class MsgtoHandle{
+class MsgOrCB{
 public:
-    string type;
-    string data;
-    UDPTransportAddress* src;
-    ~MsgtoHandle(){
+    UDPTransportAddress* src = nullptr;
+    string type, data;
+    timer_callback_t cb;
+    bool iscb = false;
+
+    explicit MsgOrCB(): cb(nullptr), iscb(false) {}
+    explicit MsgOrCB(UDPTransportAddress* src): src(src), cb(nullptr), iscb(false) {}
+    explicit MsgOrCB(bool iscb, timer_callback_t cb) :src(nullptr), cb(std::move(cb)), iscb(true){
+        if (!iscb)
+            Panic("wrong init of MsgToHandle");
+    }
+
+    ~MsgOrCB(){
         delete src;
     }
 };

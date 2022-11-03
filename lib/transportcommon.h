@@ -62,7 +62,7 @@ public:
     SendMessage(TransportReceiver *src, const TransportAddress &dst,
                 const std::shared_ptr<Message> m, bool sequence = true) {
         const ADDR &dstAddr = dynamic_cast<const ADDR &>(dst);
-        SendMessageInternal(src, dstAddr, m, false);
+        SendMessageInternal(src, dstAddr, std::move(m), false);
         return true;
     }
 
