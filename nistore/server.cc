@@ -239,7 +239,7 @@ main(int argc, char **argv)
 //        handlecpu += bindcpu;
 //        sendcpu += bindcpu;
     }
-    UDPTransportV2 transport(0.0, 0.0, 0, nullptr, bindcpu, bindcpu +1, bindcpu + 2);
+    UDPTransportV2 transport(0.0, 0.0, 0, nullptr, 1, 2);
 
     specpaxos::Replica *replica;
     nistore::Server server;

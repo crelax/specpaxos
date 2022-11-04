@@ -61,7 +61,7 @@ main(int argc, char **argv) {
     int batchSize = 1;
     bool recover = false;
     int sendtnum = 1;
-    int bindcpu = -1;
+    int bindcpu = 0;
 
     specpaxos::AppReplica *nullApp = new specpaxos::AppReplica();
 
@@ -75,7 +75,7 @@ main(int argc, char **argv) {
 
     // Parse arguments
     int opt;
-    while ((opt = getopt(argc, argv, "b:c:d:i:m:q:r:R:p:t:p")) != -1) {
+    while ((opt = getopt(argc, argv, "b:c:d:i:m:q:r:R:p:t:")) != -1) {
         switch (opt) {
             case 'b': {
                 char *strtolPtr;
@@ -227,12 +227,10 @@ main(int argc, char **argv) {
         CPU_ZERO(&m);
         CPU_SET(bindcpu, &m);
         pthread_setaffinity_np(pthread_self(), sizeof(m), &m);
-        loopcpu+= bindcpu;
-        handlecpu += bindcpu;
-        sendcpu += bindcpu;
+        Notice("loop on cpu %d", sched_getcpu());
     }
 
-    UDPTransportV2 transport(dropRate, reorderRate, dscp, nullptr, loopcpu, handlecpu, sendcpu);
+    UDPTransportV2 transport(dropRate, reorderRate, dscp, nullptr, sendtnum, handlecpu + 1);
 
     specpaxos::Replica *replica;
     switch (proto) {

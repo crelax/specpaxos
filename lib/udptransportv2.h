@@ -63,7 +63,7 @@ class UDPTransportV2 : public TransportCommonV2<UDPTransportAddress>
 public:
     UDPTransportV2(double dropRate = 0.0, double reorderRate = 0.0,
                  int dscp = 0, event_base *evbase = nullptr,
-                 int = 0, int  = 2, int = 4);
+                 int sendernum = 1, int handlecpu = 1);
     virtual ~UDPTransportV2();
     void Register(TransportReceiver *receiver,
                   const specpaxos::Configuration &config,
@@ -124,6 +124,7 @@ private:
     std::vector<event *> signalEvents;
     std::map<int, TransportReceiver*> receivers; // fd -> receiver
     std::map<TransportReceiver*, int> fds; // receiver -> fd
+    std::vector<int> senderfds;
 
     TransportReceiver* outstandingReceiver;
     int outstandingReceiverFd;
@@ -145,9 +146,10 @@ private:
     void SendMessageInternal(TransportReceiver *src, const UDPTransportAddress &dst,
                                 const std::shared_ptr<Message> m, bool multicast = false, bool isseq = false);
 
-    HandleQ handleq;
-//    TaskQ taskq;
-    SendQ sendq;
+    HandleQ handleq = HandleQ(4096, 1, 1);
+    SendQ sendq = SendQ (4096, 1, 1);
+    const PToken handleqToken = PToken(handleq);
+    const PToken sendqToken = PToken(sendq);
 
     std::vector<std::thread> senderpool;
     std::thread actor;
@@ -155,7 +157,7 @@ private:
     int cpunum;
     int loopcpu;
     int handlecpu;
-    int sendcpu;
+    int sendcpu = 1;
 
     std::set<int> sender_cpu = {};
     int sendernum = 1;
@@ -184,7 +186,7 @@ private:
     static void SignalCallback(evutil_socket_t fd,
                                short what, void *arg);
 
-    void MsgSender(int cpu, SendQ & sendq);
+    void MsgSender(int stid, int cpu, SendQ& send);
     void MsgHandler(int cpu, HandleQ& handleq, SendQ& sendq);
     void JoinWorkers();
 };
