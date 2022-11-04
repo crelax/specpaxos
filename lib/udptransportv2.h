@@ -36,6 +36,8 @@
 #include "lib/transport.h"
 #include "lib/transportcommon.h"
 #include "lib/udptransportaddress.h"
+#include "lib/concurrentqueue.h"
+#include "lib/blockingconcurrentqueue.h"
 
 #include <event2/event.h>
 
@@ -50,10 +52,11 @@
 #include <variant>
 
 //using func_handle_msg = std::function<void (MsgOrCB)>;
-using HandleQ = moodycamel::ReaderWriterQueue<MsgOrCB*>;
+using HandleQ = moodycamel::ConcurrentQueue<MsgOrCB*>;
 //using TaskQ = moodycamel::ReaderWriterQueue<TasktoDo>;
 //using CallalbeQ = moodycamel::ReaderWriterQueue<(int)>;
-using SendQ = moodycamel::ReaderWriterQueue<MsgtoSend*>;
+using SendQ = moodycamel::ConcurrentQueue<MsgtoSend*>;
+using PToken = moodycamel::ProducerToken;
 
 class UDPTransportV2 : public TransportCommonV2<UDPTransportAddress>
 {

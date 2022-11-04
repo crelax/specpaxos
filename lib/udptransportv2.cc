@@ -134,8 +134,7 @@ UDPTransportV2::UDPTransportV2(double dropRate, double reorderRate,
                            int dscp, event_base *evbase,
                           int loopcpu, int handlecpu, int sendcpu)
         : dropRate(dropRate), reorderRate(reorderRate), dscp(dscp),
-          loopcpu(loopcpu), handlecpu(handlecpu), sendcpu(sendcpu),
-          sendq(SendQ(100000)), handleq(HandleQ (100000)) {
+          loopcpu(loopcpu), handlecpu(handlecpu), sendcpu(sendcpu){
 
 //    lastTimerId = 0;
     lastTimerId.store(0);
@@ -183,6 +182,9 @@ UDPTransportV2::UDPTransportV2(double dropRate, double reorderRate,
 //
 //    sendq = SendMsgQ (100000);
 //    handleq = HandleMsgQ (100000);
+    sendq =SendQ(100000, 1, 1);
+    handleq =HandleQ (100000, 1, 1);
+
 
     cpunum = std::thread::hardware_concurrency();
     int sendernum = 1;
