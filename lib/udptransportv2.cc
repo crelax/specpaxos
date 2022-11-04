@@ -181,18 +181,26 @@ UDPTransportV2::UDPTransportV2(double dropRate, double reorderRate,
 
     cpunum = std::thread::hardware_concurrency();
     sendernum = std::max(1, std::min(cpunum - 3, sendernum));
-    Notice("arranging %d threads to send packages", sendernum);
+    Notice("arranging %d threads to send random packages", sendernum);
 
-    actor = std::thread(&UDPTransportV2::MsgHandler, this, handlecpu, std::ref(handleq), std::ref(sendq));
+    actor = std::thread(&UDPTransportV2::MsgHandler, this, this->handlecpu);
     avoid_cpu.insert(handlecpu);
 
     sleep(1);
     int cpu = handlecpu + 1;
+
+    while (avoid_cpu.count(cpu))
+        cpu = (cpu + 1) % cpunum;
+    Notice("adding thread to send SEQ pkgs to cpu %d", cpu);
+    senderpool.emplace_back(std::thread(&UDPTransportV2::MsgSender, this, 0, cpu, std::cref(sendqToken_seq), std::ref(sendq_seq)));
+    avoid_cpu.insert(cpu);
+    Notice("Starting sender thread %llu", senderpool.back().get_id());
+
     for (int i = 0; i < sendernum; i++) {
         while (avoid_cpu.count(cpu))
             cpu = (cpu + 1) % cpunum;
-        Notice("adding thread to send pkgs to cpu %d", cpu);
-        senderpool.emplace_back(std::thread(&UDPTransportV2::MsgSender, this, i, cpu, std::ref(sendq)));
+        Notice("adding thread to send RANDOM pkgs to cpu %d", cpu);
+        senderpool.emplace_back(std::thread(&UDPTransportV2::MsgSender, this, i+1, cpu, std::cref(sendqToken_random), std::ref(sendq_random)));
         Notice("Starting sender thread %llu", senderpool.back().get_id());
         avoid_cpu.insert(cpu);
     }
@@ -755,8 +763,11 @@ UDPTransportV2::SendMessageInternal(TransportReceiver *src,
 //    if (m->ByteSizeLong() > MAX_UDP_MESSAGE_SIZE - 1000) {
 //        msgId = ++lastFragMsgId;
 //    }
-    auto msg = new MsgtoSend (outstandingReceiverFd, dst.clone(), msgId, std::move(m));
-    sendq.enqueue(sendqToken, msg);
+    auto msg = new MsgtoSend ( dst.clone(), msgId, std::move(m));
+    if (isseq)
+        sendq_seq.enqueue(sendqToken_seq, msg);
+    else
+        sendq_random.enqueue(sendqToken_random, msg);
 }
 
 void UDPTransportV2::JoinWorkers() {
@@ -770,7 +781,7 @@ void UDPTransportV2::JoinWorkers() {
 }
 
 void
-UDPTransportV2::MsgHandler(int cpu, HandleQ& recvq, SendQ& sendq) {
+UDPTransportV2::MsgHandler(int cpu) {
     if (cpu >= 0) {
         cpu_set_t mask;
         CPU_ZERO(&mask);
@@ -780,13 +791,14 @@ UDPTransportV2::MsgHandler(int cpu, HandleQ& recvq, SendQ& sendq) {
 
     MsgOrCB* task;
     while(true) {
-        if (!recvq.try_dequeue(task))
+        if (!handleq.try_dequeue_from_producer(handleqToken,task))
             continue;
 
         if (task == nullptr) {
             Notice("Handler received signal to quit");
+            sendq_seq.enqueue(sendqToken_seq, nullptr);
             for (int i =0; i < sendernum; i++)
-                sendq.enqueue(sendqToken, nullptr);
+                sendq_random.enqueue(sendqToken_random, nullptr);
             break;
         }
 
@@ -807,7 +819,7 @@ UDPTransportV2::MsgHandler(int cpu, HandleQ& recvq, SendQ& sendq) {
 }
 
 void
-UDPTransportV2::MsgSender(int stid, int cpu, SendQ& send) {
+UDPTransportV2::MsgSender(int stid, int cpu,const PToken & token, SendQ& sendq) {
     if (cpu >= 0) {
         cpu_set_t mask;
         CPU_ZERO(&mask);
@@ -830,7 +842,7 @@ UDPTransportV2::MsgSender(int stid, int cpu, SendQ& send) {
 
     MsgtoSend* t;
     while (true) {
-        if (sendq.try_dequeue_from_producer(sendqToken, t))
+        if (sendq.try_dequeue_from_producer(token, t))
         {
             if (t == nullptr)  {
                 Notice("%d, Received to close", cpu);

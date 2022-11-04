@@ -30,11 +30,10 @@ private:
 class MsgtoSend{
     using sprtMsg = std::shared_ptr<google::protobuf::Message>;
 public:
-    explicit MsgtoSend(int fd, UDPTransportAddress* dst, uint64_t msgId, sprtMsg m)
-        :fd(fd), dst(dst), msgId(msgId), m(std::move(m)){}
+    explicit MsgtoSend(UDPTransportAddress* dst, uint64_t msgId, sprtMsg m)
+            : dst(dst), msgId(msgId), m(std::move(m)){}
     explicit MsgtoSend()
-            :fd(0), dst(nullptr), msgId(0), m(nullptr){};
-    int fd;
+            : dst(nullptr), msgId(0), m(nullptr){};
     UDPTransportAddress* dst;
     uint64_t msgId;
     std::shared_ptr<google::protobuf::Message> m;

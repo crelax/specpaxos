@@ -147,9 +147,11 @@ private:
                                 const std::shared_ptr<Message> m, bool multicast = false, bool isseq = false);
 
     HandleQ handleq = HandleQ(4096, 1, 1);
-    SendQ sendq = SendQ (4096, 1, 1);
+    SendQ sendq_seq = SendQ (4096, 1, 1);
+    SendQ sendq_random = SendQ (4096, 1, 1);
     const PToken handleqToken = PToken(handleq);
-    const PToken sendqToken = PToken(sendq);
+    const PToken sendqToken_seq = PToken(sendq_seq);
+    const PToken sendqToken_random = PToken(sendq_random);
 
     std::vector<std::thread> senderpool;
     std::thread actor;
@@ -186,8 +188,8 @@ private:
     static void SignalCallback(evutil_socket_t fd,
                                short what, void *arg);
 
-    void MsgSender(int stid, int cpu, SendQ& send);
-    void MsgHandler(int cpu, HandleQ& handleq, SendQ& sendq);
+    void MsgSender(int stid, int cpu, const PToken & token, SendQ& send);
+    void MsgHandler(int cpu);
     void JoinWorkers();
 };
 

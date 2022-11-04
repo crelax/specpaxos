@@ -672,7 +672,7 @@ VRReplica::HandlePrepare(const TransportAddress &remote,
 
     if (!(transport->SendMessageToReplica(this,
                                              configuration.GetLeaderIndex(view),
-                                             reply))) {
+                                             reply, false))) {
         RWarning("Failed to send PrepareOK message to leader");
     }
 }
