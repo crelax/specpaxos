@@ -126,6 +126,9 @@ private:
     std::vector<event *> signalEvents;
     std::map<int, TransportReceiver*> receivers; // fd -> receiver
     std::map<TransportReceiver*, int> fds; // receiver -> fd
+
+    std::vector<int>senderfds;
+
     std::map<const specpaxos::Configuration *, int> multicastFds;
     std::map<int, const specpaxos::Configuration *> multicastConfigs;
     int lastTimerId;
@@ -178,7 +181,7 @@ private:
     std::set<int> avoid_cpu;
 
     void
-    worker(int cpu, moodycamel::ProducerToken &token, moodycamel::ConcurrentQueue<TasktoSend*> &taskq);
+    worker(int idx, int cpu, moodycamel::ProducerToken &token, moodycamel::ConcurrentQueue<TasktoSend*> &taskq);
 };
 
 

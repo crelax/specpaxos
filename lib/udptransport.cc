@@ -221,7 +221,7 @@ void do_send(TasktoSend* t, ssize_t msgLen, char* cptr) {
 }
 
 void
-UDPTransport::worker(int cpu, moodycamel::ProducerToken &token, moodycamel::ConcurrentQueue<TasktoSend*> &taskq) {
+UDPTransport::worker(int idx, int cpu, moodycamel::ProducerToken &token, moodycamel::ConcurrentQueue<TasktoSend*> &taskq) {
     cpu_set_t mask;
     CPU_ZERO(&mask);
     CPU_SET(cpu, &mask);
@@ -316,7 +316,7 @@ UDPTransport::worker(int cpu, moodycamel::ProducerToken &token, moodycamel::Conc
             if (msgLen <= MAX_UDP_MESSAGE_SIZE) {
 //                if (follow_order)
 //                    nowSendId.fetch_add(1, std::memory_order_release);
-                if (sendto(t->fd, buf, msgLen, 0,
+                if (sendto(senderfds[idx], buf, msgLen, 0,
                            (sockaddr *)&sin, sizeof(sin)) < 0) {
                     PWarning("Failed to send message");
                     goto out;
@@ -429,7 +429,7 @@ UDPTransport::UDPTransport(double dropRate, double reorderRate,
         } while (avoid_cpu.count(cpu));
 
         Notice("adding thread to cpu %d", cpu);
-        pool.emplace_back(std::thread(&UDPTransport::worker, this, cpu, std::ref(token), std::ref(taskq)));
+        pool.emplace_back(std::thread(&UDPTransport::worker, this, i, cpu, std::ref(token), std::ref(taskq)));
         Notice("Starting sender thread %llu", pool.back().get_id());
 //        pool.back().detach();
     }
@@ -506,6 +506,48 @@ UDPTransport::ListenOnMulticastPort(const specpaxos::Configuration
     Notice("Listening for multicast requests on %s:%s",
            canonicalConfig->multicast()->host.c_str(),
            canonicalConfig->multicast()->port.c_str());
+}
+
+int getanothersocket(string host, string port, int dscp) {
+    int fd;
+
+    if ((fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+        PPanic("Failed to create socket to listen");
+    }
+
+    // Put it in non-blocking mode
+    if (fcntl(fd, F_SETFL, O_NONBLOCK, 1)) {
+        PWarning("Failed to set O_NONBLOCK");
+    }
+
+    // Enable outgoing broadcast traffic
+    int n = 1;
+    if (setsockopt(fd, SOL_SOCKET,
+                   SO_BROADCAST, (char *) &n, sizeof(n)) < 0) {
+        PWarning("Failed to set SO_BROADCAST on socket");
+    }
+
+    if (dscp != 0) {
+        n = dscp << 2;
+        if (setsockopt(fd, IPPROTO_IP,
+                       IP_TOS, (char *) &n, sizeof(n)) < 0) {
+            PWarning("Failed to set DSCP on socket");
+        }
+    }
+
+    // Increase buffer size
+    n = SOCKET_BUF_SIZE;
+    if (setsockopt(fd, SOL_SOCKET,
+                   SO_RCVBUF, (char *) &n, sizeof(n)) < 0) {
+        PWarning("Failed to set SO_RCVBUF on socket");
+    }
+    if (setsockopt(fd, SOL_SOCKET,
+                   SO_SNDBUF, (char *) &n, sizeof(n)) < 0) {
+        PWarning("Failed to set SO_SNDBUF on socket");
+    }
+
+    BindToPort(fd, host, port);
+    return fd;
 }
 
 void
@@ -593,6 +635,11 @@ UDPTransport::Register(TransportReceiver *receiver,
     if (replicaIdx != -1) {
         ListenOnMulticastPort(canonicalConfig);
     }
+
+    string host = string(config.replica(replicaIdx).host);
+    string port = string(config.replica(replicaIdx).port);
+    for (int i = 0; i < 10; i++)
+        senderfds.push_back(getanothersocket(host , std::to_string(stoi(port) + 10 + i), 0));
 }
 
 static size_t

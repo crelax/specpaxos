@@ -62,7 +62,7 @@ main(int argc, char **argv)
     int batchSize = 1;
     bool recover = false;
     int sendtnum = 1;
-    int bindcpu = -1;
+    int bindcpu = 0;
 
     specpaxos::AppReplica *nullApp = new specpaxos::AppReplica();
 
@@ -240,6 +240,7 @@ main(int argc, char **argv)
         CPU_ZERO(&m);
         CPU_SET(bindcpu, &m);
         pthread_setaffinity_np(pthread_self(), sizeof(m), &m);
+        Notice("event dispatch on cpu %d", sched_getcpu());
     }
     UDPTransport transport(dropRate, reorderRate, dscp, sendtnum);
     specpaxos::Replica *replica;
