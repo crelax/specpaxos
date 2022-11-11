@@ -230,7 +230,7 @@ main(int argc, char **argv) {
         Notice("loop on cpu %d", sched_getcpu());
     }
 
-    UDPTransportV2 transport(dropRate, reorderRate, dscp, nullptr, sendtnum, handlecpu + 1);
+    UDPTransportV2 transport(dropRate, reorderRate, dscp, nullptr);
 
     specpaxos::Replica *replica;
     switch (proto) {

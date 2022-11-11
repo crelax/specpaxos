@@ -62,7 +62,7 @@ public:
     SendMessage(TransportReceiver *src, const TransportAddress &dst,
                 const std::shared_ptr<Message> m, bool sequence = true) {
         const ADDR &dstAddr = dynamic_cast<const ADDR &>(dst);
-        SendMessageInternal(src, dstAddr, std::move(m), false, sequence);
+        SendMessageInternal(src, dstAddr, std::move(m), -1);
         return true;
     }
 
@@ -80,7 +80,7 @@ public:
 //        ASSERT(kv != replicaAddresses[cfg].end());
 //
 //        SendMessageInternal(src, kv->second, m, false, sequence);
-        SendMessageInternal(src, currentConfigAddresses[replicaIdx], m, false, sequence);
+        SendMessageInternal(src, currentConfigAddresses[replicaIdx], m, replicaIdx);
         return true;
     }
 
@@ -98,7 +98,7 @@ public:
         for (int i = 0; i < currentConfig->n; i++) {
             if (i == currentIndex)
                 continue;
-            SendMessageInternal(src, currentConfigAddresses[i], m, false, sequence);
+            SendMessageInternal(src, currentConfigAddresses[i], m,i);
         }
 
 //        // ...or by individual messages to every replica if not
@@ -127,9 +127,8 @@ public:
 
 protected:
     virtual // v2 only send msg with shard_ptr
-    void SendMessageInternal(TransportReceiver *src, const ADDR &dst,
-                             const std::shared_ptr<Message> m,
-                             bool multicast = false, bool isseq = false) = 0;
+    void
+    SendMessageInternal(TransportReceiver *src, const ADDR &dst, const std::shared_ptr<Message> m, int idx) = 0;
 
     virtual ADDR LookupAddress(const specpaxos::Configuration &cfg,
                                int replicaIdx) = 0;

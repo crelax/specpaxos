@@ -62,8 +62,7 @@ class UDPTransportV2 : public TransportCommonV2<UDPTransportAddress>
 {
 public:
     UDPTransportV2(double dropRate = 0.0, double reorderRate = 0.0,
-                 int dscp = 0, event_base *evbase = nullptr,
-                 int sendernum = 1, int handlecpu = 1);
+                 int dscp = 0, event_base *evbase = nullptr);
     virtual ~UDPTransportV2();
     void Register(TransportReceiver *receiver,
                   const specpaxos::Configuration &config,
@@ -144,26 +143,28 @@ private:
     std::map<UDPTransportAddress, UDPTransportFragInfo> fragInfo;
 
     void SendMessageInternal(TransportReceiver *src, const UDPTransportAddress &dst,
-                                const std::shared_ptr<Message> m, bool multicast = false, bool isseq = false);
+                                const std::shared_ptr<Message> m, int idx);
+
+    std::vector<SendQ> repSendq;
+    std::vector<PToken> repSendqToken;
+    SendQ cliSendq = SendQ (4096, 1, 1);
+    const PToken cliSendqToken = PToken(cliSendq);
 
     HandleQ handleq = HandleQ(4096, 1, 1);
-    SendQ sendq_seq = SendQ (4096, 1, 1);
-    SendQ sendq_random = SendQ (4096, 1, 1);
     const PToken handleqToken = PToken(handleq);
-    const PToken sendqToken_seq = PToken(sendq_seq);
-    const PToken sendqToken_random = PToken(sendq_random);
 
-    std::vector<std::thread> senderpool;
-    std::thread actor;
+    std::vector<std::thread> repSender;
+    std::thread cliSender;
+    std::thread replicator;
 
     int cpunum;
     int loopcpu;
-    int handlecpu;
-    int sendcpu = 1;
+    int handlecpu = 2;
+    int SendClientCPU = 1;
 
     std::set<int> sender_cpu = {};
     int sendernum = 1;
-    std::set<int> avoid_cpu = {0, 5};
+    std::set<int> avoid_cpu = {0, 1, 5};
 
     bool SendMessageInternalT(TransportReceiver *src,
                              const UDPTransportAddress &dst,
@@ -176,13 +177,16 @@ private:
                   int replicaIdx);
 
     void OnReadable(int fd);
+    void OnReadableSync(int fd);
     void OnTimer(UDPTransportTimerInfo *info);
     void OnTimerV2(TimeoutV2 *t);
+    void OnTimerV2Sync(TimeoutV2 *t);
     static void SocketCallback(evutil_socket_t fd,
                                short what, void *arg);
     static void TimerCallback(evutil_socket_t fd,
                               short what, void *arg);
     static void TimerCallbackV2(evutil_socket_t fd, short what, void* arg);
+    static void TimerCallbackV2Sync(evutil_socket_t fd, short what, void* arg);
     static void LogCallback(int severity, const char *msg);
     static void FatalCallback(int err);
     static void SignalCallback(evutil_socket_t fd,

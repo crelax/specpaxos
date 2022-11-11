@@ -131,10 +131,8 @@ BindToPort(int fd, const string &host, const string &port) {
 }
 
 UDPTransportV2::UDPTransportV2(double dropRate, double reorderRate,
-                           int dscp, event_base *evbase,
-                          int sendernum, int handlecpu)
-        : dropRate(dropRate), reorderRate(reorderRate), dscp(dscp),
-          sendernum(sendernum), handlecpu(handlecpu){
+                           int dscp, event_base *evbase)
+        : dropRate(dropRate), reorderRate(reorderRate), dscp(dscp){
 
 //    lastTimerId = 0;
     lastTimerId.store(0);
@@ -164,10 +162,6 @@ UDPTransportV2::UDPTransportV2(double dropRate, double reorderRate,
         evthread_use_pthreads();
         libeventBase = event_base_new();
         evthread_make_base_notifiable(libeventBase);
-
-//        recvBase = event_base_new();
-//        evthread_make_base_notifiable(recvBase);
-
     }
 
     // Set up signal handler
@@ -181,46 +175,28 @@ UDPTransportV2::UDPTransportV2(double dropRate, double reorderRate,
 
     cpunum = std::thread::hardware_concurrency();
     sendernum = std::max(1, std::min(cpunum - 3, sendernum));
-    Notice("arranging %d threads to send random packages", sendernum);
 
-    actor = std::thread(&UDPTransportV2::MsgHandler, this, this->handlecpu);
-    avoid_cpu.insert(handlecpu);
+    Notice("arranging replicator thread threads to do replication on cpu %d",  this->handlecpu);
+    replicator = std::thread(&UDPTransportV2::MsgHandler, this, this->handlecpu);
 
-    sleep(1);
-    int cpu = handlecpu + 1;
+    // primary: 2: handle cpu, 3: rep1 cpu, 4: rep2 cpu, 1: cli cpu
+    // backups: 2: handle cpu, 3: rep0 cpu, 4: repx cpu, 1: cli cpu
 
-    while (avoid_cpu.count(cpu))
-        cpu = (cpu + 1) % cpunum;
-    Notice("adding thread to send SEQ pkgs to cpu %d", cpu);
-    senderpool.emplace_back(std::thread(&UDPTransportV2::MsgSender, this, 0, cpu, std::cref(sendqToken_seq), std::ref(sendq_seq)));
-    avoid_cpu.insert(cpu);
-    Notice("Starting sender thread %llu", senderpool.back().get_id());
-
-    for (int i = 0; i < sendernum; i++) {
-        while (avoid_cpu.count(cpu))
-            cpu = (cpu + 1) % cpunum;
-        Notice("adding thread to send RANDOM pkgs to cpu %d", cpu);
-        senderpool.emplace_back(std::thread(&UDPTransportV2::MsgSender, this, i+1, cpu, std::cref(sendqToken_random), std::ref(sendq_random)));
-        Notice("Starting sender thread %llu", senderpool.back().get_id());
-        avoid_cpu.insert(cpu);
+    handlecpu = 2;
+    int clicpu = 1;
+    int repcpu = 3;
+    Notice("adding thread to send pkgs to client on cpu %d", clicpu);
+    cliSender = std::thread(&UDPTransportV2::MsgSender, this, 0, clicpu, std::cref(cliSendqToken), std::ref(cliSendq));
+    for (int i = 0; i < 3; i++) {
+        repSendq.emplace_back(SendQ(4096, 1, 1));
+        repSendqToken.emplace_back(PToken(repSendq[i]));
     }
-
-    avoid_cpu.insert(handlecpu);
-
-//    for (int i = 0; i < 1 + sendernum; i++) {
-//        do {
-//            cpu = (cpu + 1) % cpunum;
-//        } while (avoid_cpu.count(cpu));
+//        if (i == currentIndex)
+//            continue;
 //
-//        Notice("adding thread to cpu %d", cpu);
-//        if (i == 0) {
-//            Notice("adding thread to send sequential pkgs to cpu %d", cpu);
-//            senderpool.emplace_back(std::thread(&UDPTransportV2::msgsender, this, cpu, std::ref(sendq)));
-//        } else {
-//            Notice("adding thread to send non-sequential pkgs to cpu %d", cpu);
-//            senderpool.emplace_back(std::thread(&UDPTransportV2::msgsender, this, cpu, std::ref(sendq)));
-//        }
-//        Notice("Starting sender thread %llu", senderpool.back().get_id());
+//        Notice("adding thread to send pkgs to replica on cpu %d", repcpu);
+//        repSender.emplace_back(std::thread(&UDPTransportV2::MsgSender, this, i, repcpu, std::cref(repSendqToken[i]), std::ref(repSendq[i])));
+//        repcpu ++;
 //    }
 }
 
@@ -465,6 +441,16 @@ UDPTransportV2::SendMessageInternalT(TransportReceiver *src,
 
 void
 UDPTransportV2::Run() {
+    int repcpu = 3; // 3, 4
+    for (int i = 0; i < currentConfig->n; i++) {
+        if (i == currentIndex)
+            continue;
+
+        Notice("adding thread to send pkgs to replica on cpu %d", repcpu);
+        repSender.emplace_back(std::thread(&UDPTransportV2::MsgSender, this, i + 1, repcpu, std::cref(repSendqToken[i]), std::ref(repSendq[i])));
+        repcpu ++;
+    }
+
     event_base_dispatch(libeventBase);
 }
 
@@ -489,6 +475,7 @@ DecodePacket(const char *buf, size_t sz, string &type, string &msg) {
     ptr += msgLen;
 
 }
+
 
 void
 UDPTransportV2::OnReadable(int fd) {
@@ -615,6 +602,130 @@ UDPTransportV2::OnReadable(int fd) {
 //    }
 }
 
+void
+UDPTransportV2::OnReadableSync(int fd) {
+    const int BUFSIZE = 65536;
+
+    ssize_t sz;
+    char buf[BUFSIZE];
+    sockaddr_in sender;
+    socklen_t senderSize = sizeof(sender);
+
+    sz = recvfrom(fd, buf, BUFSIZE, 0,
+                  (struct sockaddr *) &sender, &senderSize);
+    if (sz == -1) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return;
+        } else {
+            PWarning("Failed to receive message from socket");
+        }
+    }
+
+    UDPTransportAddress* src = new UDPTransportAddress(sender);
+    string msgType, msgData;
+
+    // Take a peek at the first field. If it's all zeros, this is
+    // a fragment. Otherwise, we can decode it directly.
+    ASSERT(sizeof(uint32_t) - sz > 0);
+    uint32_t magic = *(uint32_t *) buf;
+    if (magic == NONFRAG_MAGIC) {
+        // Not a fragment. Decode the packet
+        DecodePacket(buf + sizeof(uint32_t), sz - sizeof(uint32_t),
+                     msgType, msgData);
+    } else if (magic == FRAG_MAGIC) {
+        // This is a fragment. Decode the header
+        const char *ptr = buf;
+        ptr += sizeof(uint32_t);
+        ASSERT(ptr - buf < sz);
+        uint64_t msgId = *((uint64_t *) ptr);
+        ptr += sizeof(uint64_t);
+        ASSERT(ptr - buf < sz);
+        size_t fragStart = *((size_t *) ptr);
+        ptr += sizeof(size_t);
+        ASSERT(ptr - buf < sz);
+        size_t msgLen = *((size_t *) ptr);
+        ptr += sizeof(size_t);
+        ASSERT(ptr - buf < sz);
+        ASSERT(buf + sz - ptr == (ssize_t) std::min(msgLen - fragStart,
+                                                    MAX_UDP_MESSAGE_SIZE));
+        Notice("Received fragment of %zd byte packet %" PRIx64 " starting at %zd",
+               msgLen, msgId, fragStart);
+        UDPTransportFragInfo &info = fragInfo[*src];
+        if (info.msgId == 0) {
+            info.msgId = msgId;
+            info.data.clear();
+        }
+        if (info.msgId != msgId) {
+            ASSERT(msgId > info.msgId);
+            Warning("Failed to reconstruct packet %" PRIx64 "", info.msgId);
+            info.msgId = msgId;
+            info.data.clear();
+        }
+
+        if (fragStart != info.data.size()) {
+            Warning("Fragments out of order for packet %" PRIx64 "; "
+                                                                 "expected start %zd, got %zd",
+                    msgId, info.data.size(), fragStart);
+            return;
+        }
+
+        info.data.append(string(ptr, buf + sz - ptr));
+        if (info.data.size() == msgLen) {
+            Debug("Completed packet reconstruction");
+            DecodePacket(info.data.c_str(), info.data.size(),
+                         msgType, msgData);
+            info.msgId = 0;
+            info.data.clear();
+        } else {
+            return;
+        }
+    } else {
+        Warning("Received packet with bad magic number");
+    }
+
+    // Dispatch
+//    if (dropRate > 0.0) {
+//        double roll = uniformDist(randomEngine);
+//        if (roll < dropRate) {
+//            Debug("Simulating packet drop of message type %s",
+//                  m->type.c_str());
+//            delete m;
+//            return;
+//        }
+//    }
+//
+//    if (!reorderBuffer.valid && (reorderRate > 0.0)) {
+//        double roll = uniformDist(randomEngine);
+//        if (roll < reorderRate) {
+//            Debug("Simulating reorder of message type %s",
+//                  m->type.c_str());
+//            ASSERT(!reorderBuffer.valid);
+//            reorderBuffer.valid = true;
+//            reorderBuffer.msg = m;
+//            return;
+//        }
+//    }
+
+    // deliver:
+//    while(!handleq.enqueue(handleqToken, m));
+     TransportReceiver *receiver = receivers[fd];
+     receiver->ReceiveMessage(src, msgType, msgData);
+     delete src;
+//    outstandingReceiver->ReceiveMessage(m->src, m->type, m->data);
+//    delete m;
+
+//    if (reorderBuffer.valid) {
+//
+//        while(!handleq.enqueue(m));
+////        while(!taskq.enqueue(TasktoDo(m)));
+//        Debug("Delivering reordered packet of type %s",
+//              reorderBuffer.msg->type.c_str());
+////        delete reorderBuffer.msg;
+//        reorderBuffer.valid = false;
+//        reorderBuffer.msg = nullptr;
+//    }
+}
+
 int
 UDPTransportV2::Timer(uint64_t ms, timer_callback_t cb) {
     UDPTransportTimerInfo *info = new UDPTransportTimerInfo();
@@ -684,8 +795,17 @@ UDPTransportV2::OnTimer(UDPTransportTimerInfo *info) {
 void
 UDPTransportV2::OnTimerV2(TimeoutV2 *t) {
     // enqueue a call back
+//    t->cb();
     this->handleq.enqueue(handleqToken, new MsgOrCB(true, t->cb));
 }
+
+void
+UDPTransportV2::OnTimerV2Sync(TimeoutV2 *t) {
+    // enqueue a call back
+    t->cb();
+//    this->handleq.enqueue(handleqToken, new MsgOrCB(true, t->cb));
+}
+
 
 void
 UDPTransportV2::SocketCallback(evutil_socket_t fd, short what, void *arg) {
@@ -707,6 +827,13 @@ UDPTransportV2::TimerCallback(evutil_socket_t fd, short what, void *arg) {
 
 void
 UDPTransportV2::TimerCallbackV2(evutil_socket_t fd, short what, void* arg) {
+    TimeoutV2 *t = (TimeoutV2 *) arg;
+    ASSERT(what & EV_TIMEOUT);
+    ((UDPTransportV2*)t->transport)->OnTimerV2(t);
+}
+
+void
+UDPTransportV2::TimerCallbackV2Sync(evutil_socket_t fd, short what, void* arg) {
     TimeoutV2 *t = (TimeoutV2 *) arg;
     ASSERT(what & EV_TIMEOUT);
     ((UDPTransportV2*)t->transport)->OnTimerV2(t);
@@ -753,8 +880,7 @@ void
 UDPTransportV2::SendMessageInternal(TransportReceiver *src,
                                     const UDPTransportAddress &dst,
                                     const std::shared_ptr<Message> m,
-                                    bool multicast,
-                                    bool isseq) {
+                                    int idx) {
     // Serialize message
 //    int fd = fds[src];
 
@@ -764,20 +890,21 @@ UDPTransportV2::SendMessageInternal(TransportReceiver *src,
 //        msgId = ++lastFragMsgId;
 //    }
     auto msg = new MsgtoSend ( dst.clone(), msgId, std::move(m));
-    if (isseq)
-        sendq_seq.enqueue(sendqToken_seq, msg);
+    if (idx < 0)
+        cliSendq.enqueue(cliSendqToken, msg);
     else
-        sendq_random.enqueue(sendqToken_random, msg);
+        repSendq[idx].enqueue(repSendqToken[idx], msg);
 }
 
 void UDPTransportV2::JoinWorkers() {
     while(!handleq.enqueue(handleqToken, nullptr));
 //    while(!sendq.emplace(MsgtoSend(-1)));
 //    actor.join();
-    for (auto& t : senderpool) {
+    for (auto& t : repSender) {
         t.join();
     }
-    actor.join();
+    replicator.join();
+    cliSender.join();
 }
 
 void
@@ -796,9 +923,12 @@ UDPTransportV2::MsgHandler(int cpu) {
 
         if (task == nullptr) {
             Notice("Handler received signal to quit");
-            sendq_seq.enqueue(sendqToken_seq, nullptr);
-            for (int i =0; i < sendernum; i++)
-                sendq_random.enqueue(sendqToken_random, nullptr);
+            cliSendq.enqueue(cliSendqToken, nullptr);
+            for (int i =0; i < currentConfig->n; i++) {
+                if (i == currentIndex)
+                    continue;
+                repSendq[i].enqueue(repSendqToken[i], nullptr);
+            }
             break;
         }
 
@@ -819,7 +949,7 @@ UDPTransportV2::MsgHandler(int cpu) {
 }
 
 void
-UDPTransportV2::MsgSender(int stid, int cpu,const PToken & token, SendQ& sendq) {
+UDPTransportV2::MsgSender(int stid, int cpu, const PToken & token, SendQ& sendq) {
     if (cpu >= 0) {
         cpu_set_t mask;
         CPU_ZERO(&mask);
