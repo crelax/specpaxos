@@ -131,8 +131,8 @@ BindToPort(int fd, const string &host, const string &port) {
 }
 
 UDPTransportV2::UDPTransportV2(double dropRate, double reorderRate,
-                           int dscp, event_base *evbase)
-        : dropRate(dropRate), reorderRate(reorderRate), dscp(dscp){
+                           int dscp, event_base *evbase, bool ctr_enable)
+        : dropRate(dropRate), reorderRate(reorderRate), dscp(dscp), counter_enable(ctr_enable){
 
 //    lastTimerId = 0;
     lastTimerId.store(0);
@@ -176,6 +176,12 @@ UDPTransportV2::UDPTransportV2(double dropRate, double reorderRate,
     cpunum = std::thread::hardware_concurrency();
     sendernum = std::max(1, std::min(cpunum - 3, sendernum));
 
+
+    if (counter_enable) {
+        Notice("Queue Ctr enabled!");
+    } else
+        Notice("Queue Ctr disabled!");
+
     handlecpu = 1;
     Notice("arranging replicator thread threads to do replication on cpu %d",  this->handlecpu);
     replicator = std::thread(&UDPTransportV2::MsgHandler, this, this->handlecpu);
@@ -186,12 +192,17 @@ UDPTransportV2::UDPTransportV2(double dropRate, double reorderRate,
     // 2 3 4
     int clicpu = 2;
     int repcpu = 3;
+
+    for (int i = 0; i < 5; i++)
+        counters.emplace_back(std::map<size_t, int>());
+
     Notice("adding thread to send pkgs to client on cpu %d", clicpu);
     cliSender = std::thread(&UDPTransportV2::MsgSender, this, 0, 2, std::cref(cliSendqToken), std::ref(cliSendq));
     for (int i = 0; i < 3; i++) {
         repSendq.emplace_back(SendQ(4096, 1, 1));
         repSendqToken.emplace_back(PToken(repSendq[i]));
     }
+
 //        if (i == currentIndex)
 //            continue;
 //
@@ -442,7 +453,7 @@ UDPTransportV2::SendMessageInternalT(TransportReceiver *src,
 
 void
 UDPTransportV2::Run() {
-    int repcpu = 3; // 1, 4
+    int repcpu = 3; // 3, 4
     for (int i = 0; i < currentConfig->n; i++) {
         if (i == currentIndex)
             continue;
@@ -897,6 +908,31 @@ UDPTransportV2::SendMessageInternal(TransportReceiver *src,
         repSendq[idx].enqueue(repSendqToken[idx], msg);
 }
 
+void DumpCounters(const std::map<size_t, int>& ctr) {
+    if (ctr.size() == 0) {
+        Notice(" Empty ");
+        return;
+    }
+
+    using PII = pair<size_t, int>;
+    std::vector<PII> pairs;
+    pairs.reserve(ctr.size());
+
+    for (auto [k, v]: ctr) {
+        pairs.push_back(std::make_pair(k, v));
+    }
+    auto greater = [](const PII& a, const PII&b) ->bool {
+        if (a.second == b.second)
+            return a.first < b.first;
+        return a.second > b.second;
+    };
+    std::sort(pairs.begin(), pairs.end(), greater);
+    string str ="";
+    for (int i = 0; i < std::min(1000, int(pairs.size())); i++)
+        str += std::to_string(pairs[i].first) + ": " + std::to_string(pairs[i].second) + "\t ";
+    Notice(" %s", str.c_str());
+}
+
 void UDPTransportV2::JoinWorkers() {
     while(!handleq.enqueue(handleqToken, nullptr));
 //    while(!sendq.emplace(MsgtoSend(-1)));
@@ -906,6 +942,19 @@ void UDPTransportV2::JoinWorkers() {
     }
     replicator.join();
     cliSender.join();
+
+    if (!counter_enable)
+        return;
+
+    int j = 0;
+    for (const auto & c :counters) {
+        string str = "++++++++++++++++" + std::to_string(j++) + "+++++++++++queue length: ";
+//        for (auto& [k, v]: c ) {
+//            str += std::to_string(k) + ": "+ std::to_string(v) + ";\t ";
+//        }
+        DumpCounters(c);
+        Notice("%s", str.c_str());
+    }
 }
 
 void
@@ -935,6 +984,9 @@ UDPTransportV2::MsgHandler(int cpu) {
 
 //        TransportReceiver *receiver = receivers[fd];
 //        receiver->ReceiveMessage(senderAddr, msgType, msg);
+
+        if (counter_enable)
+            counters[cpu][handleq.size_approx()]++;
 
         if (task->iscb) {
             task->cb();
@@ -979,6 +1031,9 @@ UDPTransportV2::MsgSender(int stid, int cpu, const PToken & token, SendQ& sendq)
                 Notice("%d, Received to close", cpu);
                 break;
             }
+
+            if (counter_enable)
+            counters[cpu][sendq.size_approx()]++;
 
             // Serialize
             type = t->m->GetTypeName();

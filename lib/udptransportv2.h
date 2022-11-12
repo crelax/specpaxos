@@ -62,7 +62,7 @@ class UDPTransportV2 : public TransportCommonV2<UDPTransportAddress>
 {
 public:
     UDPTransportV2(double dropRate = 0.0, double reorderRate = 0.0,
-                 int dscp = 0, event_base *evbase = nullptr);
+                 int dscp = 0, event_base *evbase = nullptr, bool enable = true);
     virtual ~UDPTransportV2();
     void Register(TransportReceiver *receiver,
                   const specpaxos::Configuration &config,
@@ -156,6 +156,10 @@ private:
     std::vector<std::thread> repSender;
     std::thread cliSender;
     std::thread replicator;
+
+    std::vector<std::map<size_t, int>> counters{};
+
+    const bool counter_enable;
 
     int cpunum;
     int loopcpu;

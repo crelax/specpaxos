@@ -62,6 +62,7 @@ main(int argc, char **argv) {
     bool recover = false;
     int sendtnum = 1;
     int bindcpu = 0;
+    int ctr_enable = 1;
 
     specpaxos::AppReplica *nullApp = new specpaxos::AppReplica();
 
@@ -75,7 +76,7 @@ main(int argc, char **argv) {
 
     // Parse arguments
     int opt;
-    while ((opt = getopt(argc, argv, "b:c:d:i:m:q:r:R:p:t:")) != -1) {
+    while ((opt = getopt(argc, argv, "b:c:d:i:m:q:r:R:p:C:t:")) != -1) {
         switch (opt) {
             case 'b': {
                 char *strtolPtr;
@@ -96,6 +97,17 @@ main(int argc, char **argv) {
                     || (bindcpu < 0) || (static_cast<unsigned int>(bindcpu) >= std::thread::hardware_concurrency())) {
                     fprintf(stderr,
                             "option -p requires a numeric arg\n");
+                    Usage(argv[0]);
+                }
+                break;
+            }
+
+            case 'C': {
+                char *strtolPtr;
+                ctr_enable = strtoul(optarg, &strtolPtr, 10);
+                if ((*optarg == '\0') || (*strtolPtr != '\0')) {
+                    fprintf(stderr,
+                            "option -C requires a 0 / 1 arg\n");
                     Usage(argv[0]);
                 }
                 break;
@@ -225,12 +237,14 @@ main(int argc, char **argv) {
     if (bindcpu >= 0) {
         cpu_set_t m;
         CPU_ZERO(&m);
-        CPU_SET(bindcpu, &m);
+        CPU_SET(0, &m);
         pthread_setaffinity_np(pthread_self(), sizeof(m), &m);
         Notice("loop on cpu %d", sched_getcpu());
     }
 
-    UDPTransportV2 transport(dropRate, reorderRate, dscp, nullptr);
+    //
+
+    UDPTransportV2 transport(dropRate, reorderRate, dscp, nullptr, ctr_enable == 1);
 
     specpaxos::Replica *replica;
     switch (proto) {
