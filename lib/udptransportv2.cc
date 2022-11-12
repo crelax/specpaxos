@@ -176,17 +176,18 @@ UDPTransportV2::UDPTransportV2(double dropRate, double reorderRate,
     cpunum = std::thread::hardware_concurrency();
     sendernum = std::max(1, std::min(cpunum - 3, sendernum));
 
+    handlecpu = 1;
     Notice("arranging replicator thread threads to do replication on cpu %d",  this->handlecpu);
     replicator = std::thread(&UDPTransportV2::MsgHandler, this, this->handlecpu);
 
     // primary: 2: handle cpu, 3: rep1 cpu, 4: rep2 cpu, 1: cli cpu
     // backups: 2: handle cpu, 3: rep0 cpu, 4: repx cpu, 1: cli cpu
 
-    handlecpu = 2;
-    int clicpu = 1;
+    // 2 3 4
+    int clicpu = 2;
     int repcpu = 3;
     Notice("adding thread to send pkgs to client on cpu %d", clicpu);
-    cliSender = std::thread(&UDPTransportV2::MsgSender, this, 0, clicpu, std::cref(cliSendqToken), std::ref(cliSendq));
+    cliSender = std::thread(&UDPTransportV2::MsgSender, this, 0, 2, std::cref(cliSendqToken), std::ref(cliSendq));
     for (int i = 0; i < 3; i++) {
         repSendq.emplace_back(SendQ(4096, 1, 1));
         repSendqToken.emplace_back(PToken(repSendq[i]));
@@ -441,14 +442,14 @@ UDPTransportV2::SendMessageInternalT(TransportReceiver *src,
 
 void
 UDPTransportV2::Run() {
-    int repcpu = 3; // 3, 4
+    int repcpu = 3; // 1, 4
     for (int i = 0; i < currentConfig->n; i++) {
         if (i == currentIndex)
             continue;
 
         Notice("adding thread to send pkgs to replica on cpu %d", repcpu);
         repSender.emplace_back(std::thread(&UDPTransportV2::MsgSender, this, i + 1, repcpu, std::cref(repSendqToken[i]), std::ref(repSendq[i])));
-        repcpu ++;
+        repcpu+= 1;
     }
 
     event_base_dispatch(libeventBase);
