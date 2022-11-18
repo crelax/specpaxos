@@ -44,18 +44,23 @@ public:
                     int warmupSec,
                     string latencyFilename = "");
     void Start();
+    void StartCirculate();
+    void OnReplyCirculate(const string &request, const string &reply);
     void OnReply(const string &request, const string &reply);
     struct Latency_t latency;
     bool started;
     bool done;
     bool cooldownDone;
     std::vector<uint64_t> latencies;
+    int round = 0;
     
 private:
     void SendNext();
+    void SendNextCirculate();
     void Finish();
     void WarmupDone();
     void CooldownDone();
+    void CirculateDone();
     Client &client;
     Transport &transport;
     int numRequests;

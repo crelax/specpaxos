@@ -7,7 +7,7 @@ CXX = g++
 LD = g++
 
 CFLAGS := -g -Wall -pthread -iquote.obj/gen -Wno-uninitialized -DNASSERT -O3
-CXXFLAGS := -std=c++0x
+CXXFLAGS := -std=c++17
 LDFLAGS := -levent_pthreads -ldl
 ## Debian package: check
 # CHECK_CFLAGS := $(shell pkg-config --cflags check)

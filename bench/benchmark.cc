@@ -65,6 +65,29 @@ BenchmarkClient::BenchmarkClient(int cid, Client &client, Transport &transport,
 }
 
 void
+BenchmarkClient::StartCirculate()
+{
+    n = 0;
+    round = 0;
+    transport.Timer(warmupSec * 1000,
+                    std::bind(&BenchmarkClient::CirculateDone,
+                              this));
+    SendNextCirculate();
+}
+
+void
+BenchmarkClient::CirculateDone()
+{
+    round ++;
+    Notice("10sec: %dth circulate, numreq:%d,\tthroughput%lf", round, n, double(n)/10);
+    transport.Timer(warmupSec * 10000,
+                    std::bind(&BenchmarkClient::CirculateDone,
+                              this));
+//    gettimeofday(&startTime, NULL);
+    n = 0;
+}
+
+void
 BenchmarkClient::Start()
 {
     n = 0;
@@ -122,6 +145,27 @@ BenchmarkClient::SendNext()
                                        std::placeholders::_1,
                                        std::placeholders::_2));
 }
+
+void
+BenchmarkClient::SendNextCirculate()
+{
+    std::ostringstream msg;
+    msg << "request" << n;
+
+//    Latency_Start(&latency);
+    client.Invoke(msg.str(), std::bind(&BenchmarkClient::OnReplyCirculate,
+                                       this,
+                                       std::placeholders::_1,
+                                       std::placeholders::_2));
+}
+
+void
+BenchmarkClient::OnReplyCirculate(const std::string &request, const std::string &reply)
+{
+    n++;
+    SendNextCirculate();
+}
+
 
 void
 BenchmarkClient::OnReply(const string &request, const string &reply)
