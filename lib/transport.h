@@ -107,12 +107,12 @@ public:
     virtual bool SendMessageToAll(TransportReceiver *src, const Message &m) = 0;
 
     virtual bool SendMessage(TransportReceiver *src, const TransportAddress &dst,
-                             const std::shared_ptr<Message> m, bool sequence = true) = 0;
+                             std::shared_ptr<Message> m, bool sequence = true) = 0;
 
-    virtual bool SendMessageToReplica(TransportReceiver *src, int replicaIdx, const std::shared_ptr<Message> m,
+    virtual bool SendMessageToReplica(TransportReceiver *src, int replicaIdx, std::shared_ptr<Message> m,
                                       bool sequence = true) = 0;
 
-    virtual bool SendMessageToAll(TransportReceiver *src, const std::shared_ptr<Message> m, bool sequence = true) = 0;
+    virtual bool SendMessageToAll(TransportReceiver *src, std::shared_ptr<Message> m, bool sequence = true) = 0;
     friend class TimeoutV2;
     virtual event* GenTimerEvent(void * timeout, timer_callback_t t) { return nullptr; }
 

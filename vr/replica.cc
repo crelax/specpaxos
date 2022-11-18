@@ -220,7 +220,7 @@ VRReplica::SendPrepareOKs(opnum_t oldLastOp) {
 
         if (!(transport->SendMessageToReplica(this,
                                                  configuration.GetLeaderIndex(view),
-                                                 reply, false))) {
+                                              std::move(reply), false))) {
             RWarning("Failed to send PrepareOK message to leader");
         }
     }
@@ -233,7 +233,7 @@ VRReplica::SendRecoveryMessages() {
     m->set_nonce(recoveryNonce);
 
     RNotice("Requesting recovery");
-    if (!transport->SendMessageToAll(this, m)) {
+    if (!transport->SendMessageToAll(this, std::move(m))) {
         RWarning("Failed to send Recovery message to all replicas");
     }
 }
@@ -257,7 +257,7 @@ VRReplica::RequestStateTransfer() {
     this->lastRequestStateTransferView = view;
     this->lastRequestStateTransferOpnum = lastCommitted;
 
-    if (!transport->SendMessageToAll(this, m, true)) {
+    if (!transport->SendMessageToAll(this, std::move(m), true)) {
         RWarning("Failed to send RequestStateTransfer message to all replicas");
     }
 }
@@ -306,7 +306,7 @@ VRReplica::StartViewChange(view_t newview) {
     m->set_replicaidx(myIdx);
     m->set_lastcommitted(lastCommitted);
 
-    if (!transport->SendMessageToAll(this, m)) {
+    if (!transport->SendMessageToAll(this, std::move(m))) {
         RWarning("Failed to send StartViewChange message to all replicas");
     }
 }
@@ -321,7 +321,7 @@ VRReplica::SendNullCommit()
 
     ASSERT(AmLeader());
 
-    if (!(transport->SendMessageToAll(this, cm))) {
+    if (!(transport->SendMessageToAll(this, std::move(cm)))) {
         RWarning("Failed to send null COMMIT message to all replicas");
     }
 }
@@ -387,7 +387,7 @@ VRReplica::CloseBatch() {
     }
     lastPrepare = p;
 
-    if (!(transport->SendMessageToAll(this, p))) {
+    if (!(transport->SendMessageToAll(this, std::move(p)))) {
         RWarning("Failed to send prepare message to all replicas");
     }
     lastBatchEnd = lastOp;
@@ -587,7 +587,7 @@ VRReplica::HandleUnloggedRequest(const TransportAddress &remote,
 
     ExecuteUnlogged(msg.req(), *reply);
 
-    if (!(transport->SendMessage(this, remote, reply, false)))
+    if (!(transport->SendMessage(this, remote, std::move(reply), false)))
         Warning("Failed to send reply message");
 }
 
@@ -634,7 +634,7 @@ VRReplica::HandlePrepare(const TransportAddress &remote,
         reply->set_replicaidx(myIdx);
         if (!(transport->SendMessageToReplica(this,
                                                  configuration.GetLeaderIndex(view),
-                                                 reply, false))) {
+                                              std::move(reply), false))) {
             RWarning("Failed to send PrepareOK message to leader");
         }
         return;
@@ -672,7 +672,7 @@ VRReplica::HandlePrepare(const TransportAddress &remote,
 
     if (!(transport->SendMessageToReplica(this,
                                              configuration.GetLeaderIndex(view),
-                                             reply, false))) {
+                                             move(reply), false))) {
         RWarning("Failed to send PrepareOK message to leader");
     }
 }
@@ -735,7 +735,7 @@ VRReplica::HandlePrepareOK(const TransportAddress &remote,
         cm->set_view(this->view);
         cm->set_opnum(this->lastCommitted);
 
-        if (!(transport->SendMessageToAll(this, cm))) {
+        if (!(transport->SendMessageToAll(this, std::move(cm)))) {
             RWarning("Failed to send COMMIT message to all replicas");
         }
 
@@ -823,7 +823,7 @@ VRReplica::HandleRequestStateTransfer(const TransportAddress &remote,
 
     log.Dump(msg.opnum()+1, reply->mutable_entries());
 
-    transport->SendMessage(this, remote, reply, true);
+    transport->SendMessage(this, remote, std::move(reply), true);
 }
 
 void
@@ -953,7 +953,7 @@ VRReplica::HandleStartViewChange(const TransportAddress &remote,
             log.Dump(minCommitted,
                      dvc->mutable_entries());
 
-            if (!(transport->SendMessageToReplica(this, leader, dvc))) {
+            if (!(transport->SendMessageToReplica(this, leader, std::move(dvc)))) {
                 RWarning("Failed to send DoViewChange message to leader of new view");
             }
         }
@@ -1075,7 +1075,7 @@ VRReplica::HandleDoViewChange(const TransportAddress &remote,
 
         log.Dump(minCommitted, sv->mutable_entries());
 
-        if (!(transport->SendMessageToAll(this, sv))) {
+        if (!(transport->SendMessageToAll(this, std::move(sv)))) {
             RWarning("Failed to send StartView message to all replicas");
         }
     }
@@ -1147,7 +1147,7 @@ VRReplica::HandleRecovery(const TransportAddress &remote,
         log.Dump(0, reply->mutable_entries());
     }
 
-    if (!(transport->SendMessage(this, remote, reply))) {
+    if (!(transport->SendMessage(this, remote, std::move(reply)))) {
         RWarning("Failed to send recovery response");
     }
     return;

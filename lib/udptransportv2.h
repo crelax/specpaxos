@@ -135,19 +135,18 @@ private:
     std::map<int, UDPTransportTimerInfo *> timers;
     std::set<int> canceledtimers;
     uint64_t lastFragMsgId;
-    struct UDPTransportFragInfo
-    {
+    struct UDPTransportFragInfo {
         uint64_t msgId;
         string data;
     };
     std::map<UDPTransportAddress, UDPTransportFragInfo> fragInfo;
 
     void SendMessageInternal(TransportReceiver *src, const UDPTransportAddress &dst,
-                                const std::shared_ptr<Message> m, int idx);
+                             std::shared_ptr<Message> m, int idx);
 
     std::vector<SendQ> repSendq;
     std::vector<PToken> repSendqToken;
-    SendQ cliSendq = SendQ (4096, 1, 1);
+    SendQ cliSendq = SendQ(4096, 1, 1);
     const PToken cliSendqToken = PToken(cliSendq);
 
     HandleQ handleq = HandleQ(4096, 1, 1);

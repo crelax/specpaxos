@@ -60,14 +60,14 @@ public:
 
     virtual bool
     SendMessage(TransportReceiver *src, const TransportAddress &dst,
-                const std::shared_ptr<Message> m, bool sequence = true) {
+                std::shared_ptr<Message> m, bool sequence = true) {
         const ADDR &dstAddr = dynamic_cast<const ADDR &>(dst);
         SendMessageInternal(src, dstAddr, std::move(m), -1);
         return true;
     }
 
     virtual bool
-    SendMessageToReplica(TransportReceiver *src, int replicaIdx, const std::shared_ptr<Message> m,
+    SendMessageToReplica(TransportReceiver *src, int replicaIdx, std::shared_ptr<Message> m,
                          bool sequence = true) {
         const specpaxos::Configuration *cfg = configurations[src];
         ASSERT(cfg != NULL);
@@ -80,12 +80,12 @@ public:
 //        ASSERT(kv != replicaAddresses[cfg].end());
 //
 //        SendMessageInternal(src, kv->second, m, false, sequence);
-        SendMessageInternal(src, currentConfigAddresses[replicaIdx], m, replicaIdx);
+        SendMessageInternal(src, currentConfigAddresses[replicaIdx], std::move(m), replicaIdx);
         return true;
     }
 
     virtual bool
-    SendMessageToAll(TransportReceiver *src, const std::shared_ptr<Message> m, bool sequence = true) {
+    SendMessageToAll(TransportReceiver *src, std::shared_ptr<Message> m, bool sequence = true) {
         const specpaxos::Configuration *cfg = configurations[src];
         ASSERT(cfg != NULL);
 
@@ -128,7 +128,7 @@ public:
 protected:
     virtual // v2 only send msg with shard_ptr
     void
-    SendMessageInternal(TransportReceiver *src, const ADDR &dst, const std::shared_ptr<Message> m, int idx) = 0;
+    SendMessageInternal(TransportReceiver *src, const ADDR &dst, std::shared_ptr<Message> m, int idx) = 0;
 
     virtual ADDR LookupAddress(const specpaxos::Configuration &cfg,
                                int replicaIdx) = 0;

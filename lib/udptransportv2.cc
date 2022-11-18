@@ -891,7 +891,7 @@ UDPTransportV2::SignalCallback(evutil_socket_t fd, short what, void *arg) {
 void
 UDPTransportV2::SendMessageInternal(TransportReceiver *src,
                                     const UDPTransportAddress &dst,
-                                    const std::shared_ptr<Message> m,
+                                    std::shared_ptr<Message> m,
                                     int idx) {
     // Serialize message
 //    int fd = fds[src];
@@ -1148,10 +1148,12 @@ UDPTransportV2::MsgSender(int stid, int cpu, const PToken & token, SendQ& sendq)
             }
 
             out:
+            t->m.reset();
 //            if (follow_order)
 //                nowSendId.fetch_add(1, std::memory_order_release);
             delete t;
             t = nullptr;
         }
     }
+    delete[] long_buf;
 }
