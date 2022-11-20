@@ -111,7 +111,7 @@ public:
     }
 
     virtual bool SendPtrMessage(TransportReceiver *src, const TransportAddress &dst,
-                                const std::shared_ptr<Message> m, bool sequence = true, bool usemyfd= true)
+                                const std::shared_ptr<Message> m, bool sequence = true, bool usemyfd= false)
     {
         const ADDR &dstAddr = dynamic_cast<const ADDR &>(dst);
         if (sequence) {
@@ -124,7 +124,7 @@ public:
 
     virtual bool
     SendPtrMessageToReplica(TransportReceiver *src, int replicaIdx,
-                            const std::shared_ptr<Message> m, bool sequence = true,  bool usemyfd = true)
+                            const std::shared_ptr<Message> m, bool sequence = true,  bool usemyfd = false)
     {
         const specpaxos::Configuration *cfg = configurations[src];
         ASSERT(cfg != NULL);

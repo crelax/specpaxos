@@ -231,7 +231,7 @@ VRReplica::SendRecoveryMessages() {
     m->set_nonce(recoveryNonce);
 
     RNotice("Requesting recovery");
-    if (!transport->SendPtrMessageToAll(this, m)) {
+    if (!transport->SendPtrMessageToAll(this, m, true, true)) {
         RWarning("Failed to send Recovery message to all replicas");
     }
 }
@@ -255,7 +255,7 @@ VRReplica::RequestStateTransfer() {
     this->lastRequestStateTransferView = view;
     this->lastRequestStateTransferOpnum = lastCommitted;
 
-    if (!transport->SendPtrMessageToAll(this, m, true)) {
+    if (!transport->SendPtrMessageToAll(this, m, true, true)) {
         RWarning("Failed to send RequestStateTransfer message to all replicas");
     }
 }
@@ -319,7 +319,7 @@ VRReplica::SendNullCommit()
 
     ASSERT(AmLeader());
 
-    if (!(transport->SendPtrMessageToAll(this, cm))) {
+    if (!(transport->SendPtrMessageToAll(this, cm, true))) {
         RWarning("Failed to send null COMMIT message to all replicas");
     }
 }
@@ -347,7 +347,7 @@ VRReplica::ResendPrepare() {
     }
     RNotice("Resending prepare");
     // false order so as to deliver ASAP
-    if (!(transport->SendPtrMessageToAll(this, lastPrepare, false))) {
+    if (!(transport->SendPtrMessageToAll(this, lastPrepare, true))) {
         RWarning("Failed to ressend prepare message to all replicas");
     }
 }
@@ -1133,7 +1133,7 @@ VRReplica::HandleRecovery(const TransportAddress &remote,
         log.Dump(0, reply->mutable_entries());
     }
 
-    if (!(transport->SendPtrMessage(this, remote, reply, true))) {
+    if (!(transport->SendPtrMessage(this, remote, reply, true, true))) {
         RWarning("Failed to send recovery response");
     }
     return;

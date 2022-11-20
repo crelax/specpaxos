@@ -302,6 +302,7 @@ UDPTransport::worker(int idx, int cpu, moodycamel::ProducerToken &token, moodyca
 //            }
 
             auto sin = t->dst->addr;
+            int sendfd = t->fd <=0? senderfds[idx] : t->fd;
 
             bool follow_order = t->seqId != 0;
             if (follow_order) {
@@ -309,14 +310,15 @@ UDPTransport::worker(int idx, int cpu, moodycamel::ProducerToken &token, moodyca
                 do {
                     x = nowSendId.load(std::memory_order_acquire);
                 } while (x < t->seqId);
-//                Notice("send since atomic int= %" PRIx64 ", seqId =%" PRIx64 ".", nowSendId.load(), t->seqId);
+
+//                Notice("send since atomic int= %" PRIx64 ", seqId =%" PRIx64 ".", x, t->seqId);
             }
 
             // do send
             if (msgLen <= MAX_UDP_MESSAGE_SIZE) {
 //                if (follow_order)
 //                    nowSendId.fetch_add(1, std::memory_order_release);
-                if (sendto(senderfds[idx], buf, msgLen, 0,
+                if (sendto(sendfd, buf, msgLen, 0,
                            (sockaddr *)&sin, sizeof(sin)) < 0) {
                     PWarning("Failed to send message");
                     goto out;
@@ -350,7 +352,7 @@ UDPTransport::worker(int idx, int cpu, moodycamel::ProducerToken &token, moodyca
 //                    if (follow_order && fragLen + fragStart == msgLen)
 //                        nowSendId.fetch_add(1, std::memory_order_release);
 
-                    if (sendto(t->fd, fragBuf, fragLen + fragHeaderLen, 0,
+                    if (sendto(sendfd, fragBuf, fragLen + fragHeaderLen, 0,
                                (sockaddr *)&(sin), sizeof(sin)) < 0) {
                         PWarning("Failed to send message fragment %ld",
                                  fragStart);
