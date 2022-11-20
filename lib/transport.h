@@ -63,6 +63,11 @@ protected:
 
 typedef std::function<void (void)> timer_callback_t;
 
+class BenchmarkClientProto{
+public:
+    virtual void DumpLatencies() {};
+};
+
 class Transport
 {
 protected:
@@ -79,6 +84,7 @@ public:
     virtual int Timer(uint64_t ms, timer_callback_t cb) = 0;
     virtual bool CancelTimer(int id) = 0;
     virtual void CancelAllTimers() = 0;
+    virtual void RegisterBenchmarkClient(BenchmarkClientProto*) {};
 };
 
 class Timeout

@@ -36,7 +36,7 @@
 
 namespace specpaxos {
     
-class BenchmarkClient
+class BenchmarkClient:BenchmarkClientProto
 {
 public:
     BenchmarkClient(int index, Client &client, Transport &transport,
@@ -47,11 +47,13 @@ public:
     void StartCirculate();
     void OnReplyCirculate(const string &request, const string &reply);
     void OnReply(const string &request, const string &reply);
+    void DumpLatencies();
     struct Latency_t latency;
     bool started;
     bool done;
     bool cooldownDone;
     std::vector<uint64_t> latencies;
+    std::vector<uint64_t> loop_latencies, prev_loop_latencies;
     int round = 0;
     
 private:

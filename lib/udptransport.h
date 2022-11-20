@@ -75,6 +75,8 @@ public:
     int Timer(uint64_t ms, timer_callback_t cb);
     bool CancelTimer(int id);
     void CancelAllTimers();
+    virtual void RegisterBenchmarkClient(BenchmarkClientProto*);
+    virtual void CallDumpLatencies();
     
 private:
     struct UDPTransportTimerInfo
@@ -98,6 +100,8 @@ private:
         int fd;
     } reorderBuffer;
     int dscp;
+
+    std::vector<BenchmarkClientProto*> benchClients;
 
     event_base *libeventBase;
     std::vector<event *> listenerEvents;

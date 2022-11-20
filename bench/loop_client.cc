@@ -217,7 +217,15 @@ int main(int argc, char **argv)
     std::vector<specpaxos::Client *> clients;
     std::vector<specpaxos::BenchmarkClient *> benchClients;
     time_t t;
-    srand((unsigned) time(&t));
+
+    cpu_set_t m;
+    CPU_ZERO(&m);
+
+    CPU_SET(index < 5 ? index: index + 1, &m);
+    pthread_setaffinity_np(pthread_self(), sizeof(m), &m);
+    Notice("Client group %d on CPU %d", index, sched_getcpu() );
+
+    srand((unsigned) time(&t) + index);
 
     warmupSec = 1;
     for (int i = 0; i < numClients; i++) {

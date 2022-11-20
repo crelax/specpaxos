@@ -287,6 +287,15 @@ UDPTransport::ListenOnMulticastPort(const specpaxos::Configuration
            canonicalConfig->multicast()->port.c_str());
 }
 
+void UDPTransport::RegisterBenchmarkClient(BenchmarkClientProto* bench) {
+    benchClients.push_back(bench);
+}
+
+void UDPTransport::CallDumpLatencies(){
+    for (auto bench: benchClients)
+        bench->DumpLatencies();
+}
+
 void
 UDPTransport::Register(TransportReceiver *receiver,
                        const specpaxos::Configuration &config,
@@ -748,6 +757,7 @@ UDPTransport::SignalCallback(evutil_socket_t fd, short what, void *arg) {
     Notice("Terminating on SIGTERM/SIGINT");
     UDPTransport *transport = (UDPTransport *) arg;
     event_base_loopbreak(transport->libeventBase);
+    transport->CallDumpLatencies();
 }
 
 bool __SendMessageInternal(int fd, char *buf, size_t msgLen, sockaddr_in sin) {

@@ -69,9 +69,14 @@ BenchmarkClient::StartCirculate()
 {
     n = 0;
     round = 0;
-    transport.Timer(warmupSec * 1000,
+    transport.RegisterBenchmarkClient(this);
+    loop_latencies.reserve(50000);
+    prev_loop_latencies.reserve(50000);
+
+    transport.Timer(warmupSec * 10000,
                     std::bind(&BenchmarkClient::CirculateDone,
                               this));
+    gettimeofday(&startTime, NULL);
     SendNextCirculate();
 }
 
@@ -83,15 +88,36 @@ BenchmarkClient::CirculateDone()
     transport.Timer(warmupSec * 10000,
                     std::bind(&BenchmarkClient::CirculateDone,
                               this));
-//    gettimeofday(&startTime, NULL);
+    gettimeofday(&endTime, NULL);
+    prev_loop_latencies.clear();
+    loop_latencies.swap(prev_loop_latencies);
     n = 0;
+}
+
+void
+BenchmarkClient::DumpLatencies() {
+    char buf[1024];
+    int reqNum = prev_loop_latencies.size();
+
+    if (reqNum == 0) {
+        Notice(" ~~ No requests recieved ~~");
+        return;
+    }
+    int m = reqNum/2;
+    std::nth_element(prev_loop_latencies.begin(), prev_loop_latencies.begin() + m, prev_loop_latencies.end());
+    auto median = prev_loop_latencies[m];
+//    Notice("Last 10 sec requets num %d, median latency %lu us", reqNum, median);
+
+//    ns = latencies[latencies.size()*90/100];
+    LatencyFmtNS(median, buf);
+    Notice("Last 10 sec request num %d, Median latency is %" PRIu64 " ns (%s)", reqNum, median, buf);
 }
 
 void
 BenchmarkClient::Start()
 {
     n = 0;
-    transport.Timer(warmupSec * 1000,
+    transport.Timer(warmupSec * 3000,
                     std::bind(&BenchmarkClient::WarmupDone,
                                this));
     SendNext();
@@ -152,7 +178,7 @@ BenchmarkClient::SendNextCirculate()
     std::ostringstream msg;
     msg << "request" << n;
 
-//    Latency_Start(&latency);
+    Latency_Start(&latency);
     client.Invoke(msg.str(), std::bind(&BenchmarkClient::OnReplyCirculate,
                                        this,
                                        std::placeholders::_1,
@@ -162,6 +188,8 @@ BenchmarkClient::SendNextCirculate()
 void
 BenchmarkClient::OnReplyCirculate(const std::string &request, const std::string &reply)
 {
+    auto l = Latency_End(&latency);
+    loop_latencies.push_back(l);
     n++;
     SendNextCirculate();
 }
