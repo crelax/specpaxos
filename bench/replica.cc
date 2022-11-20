@@ -235,13 +235,13 @@ main(int argc, char **argv)
         Usage(argv[0]);
     }
 
-    if (bindcpu != -1) {
+//    if (bindcpu != -1) {
         cpu_set_t m;
         CPU_ZERO(&m);
-        CPU_SET(bindcpu, &m);
+        CPU_SET(0, &m);
         pthread_setaffinity_np(pthread_self(), sizeof(m), &m);
         Notice("event dispatch on cpu %d", sched_getcpu());
-    }
+//    }
     UDPTransport transport(dropRate, reorderRate, dscp, sendtnum);
     specpaxos::Replica *replica;
     switch (proto) {

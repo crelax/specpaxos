@@ -87,7 +87,7 @@ VRReplica::VRReplica(Configuration config, int myIdx,
         this->lastRequestStateTransferOpnum = 0;
     });
     this->stateTransferTimeout->Start();
-    this->resendPrepareTimeout = new Timeout(transport, 500, [this]() {
+    this->resendPrepareTimeout = new Timeout(transport, 800, [this]() {
         ResendPrepare();
     });
     this->closeBatchTimeout = new Timeout(transport, 300, [this]() {
@@ -347,7 +347,7 @@ VRReplica::ResendPrepare() {
     }
     RNotice("Resending prepare");
     // false order so as to deliver ASAP
-    if (!(transport->SendPtrMessageToAll(this, lastPrepare))) {
+    if (!(transport->SendPtrMessageToAll(this, lastPrepare, false))) {
         RWarning("Failed to ressend prepare message to all replicas");
     }
 }
@@ -658,7 +658,7 @@ VRReplica::HandlePrepare(const TransportAddress &remote,
     
     if (!(transport->SendPtrMessageToReplica(this,
                                           configuration.GetLeaderIndex(view),
-                                          reply))) {
+                                          reply, false))) {
         RWarning("Failed to send PrepareOK message to leader");
     }
 }
@@ -809,7 +809,7 @@ VRReplica::HandleRequestStateTransfer(const TransportAddress &remote,
     
     log.Dump(msg.opnum()+1, reply->mutable_entries());
 
-    transport->SendPtrMessage(this, remote, reply, true);
+    transport->SendPtrMessage(this, remote, reply, true, true);
 }
 
 void
@@ -1133,7 +1133,7 @@ VRReplica::HandleRecovery(const TransportAddress &remote,
         log.Dump(0, reply->mutable_entries());
     }
 
-    if (!(transport->SendPtrMessage(this, remote, reply))) {
+    if (!(transport->SendPtrMessage(this, remote, reply, true))) {
         RWarning("Failed to send recovery response");
     }
     return;

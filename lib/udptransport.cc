@@ -368,6 +368,7 @@ UDPTransport::worker(int idx, int cpu, moodycamel::ProducerToken &token, moodyca
             t = nullptr;
         }
     }
+    delete[] long_buf;
 }
 
 UDPTransport::UDPTransport(double dropRate, double reorderRate,
@@ -1024,8 +1025,8 @@ UDPTransport::SendPtrMessageInternal(TransportReceiver *src,
                                   const UDPTransportAddress &dst,
                                   const std::shared_ptr<Message> m,
                                   bool multicast,
-                                  uint64_t queuedMsgId) {
-    int fd = fds[src];
+                                  uint64_t queuedMsgId, bool usemyfd) {
+    int fd = usemyfd ? fds[src] : -1;
 
     TasktoSend* t = new TasktoSend{fd, dst.clone(), 0, queuedMsgId, m};
     if (m->ByteSizeLong() > MAX_UDP_MESSAGE_SIZE - 1000) {

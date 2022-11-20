@@ -150,7 +150,7 @@ private:
     std::vector<std::thread> pool;
 
     void SendPtrMessageInternal(TransportReceiver *src, const UDPTransportAddress &dst,
-                                const std::shared_ptr<Message> m, bool multicast = false, uint64_t queuedMsgId = 0);
+                                const std::shared_ptr<Message> m, bool multicast = false, uint64_t queuedMsgId = 0,  bool usemyfd=false);
 
     bool SendMessageInternal(TransportReceiver *src,
                              const UDPTransportAddress &dst,

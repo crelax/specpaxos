@@ -111,20 +111,20 @@ public:
     }
 
     virtual bool SendPtrMessage(TransportReceiver *src, const TransportAddress &dst,
-                                const std::shared_ptr<Message> m, bool sequence)
+                                const std::shared_ptr<Message> m, bool sequence = true, bool usemyfd= true)
     {
         const ADDR &dstAddr = dynamic_cast<const ADDR &>(dst);
         if (sequence) {
-            SendPtrMessageInternal(src, dstAddr, m, false, queuedMsgId++);
+            SendPtrMessageInternal(src, dstAddr, m, false, queuedMsgId++, usemyfd);
         } else {
-            SendPtrMessageInternal(src, dstAddr, m, false);
+            SendPtrMessageInternal(src, dstAddr, m, false, 0, usemyfd);
         }
         return true;
     }
 
     virtual bool
     SendPtrMessageToReplica(TransportReceiver *src, int replicaIdx,
-                            const std::shared_ptr<Message> m, bool sequence)
+                            const std::shared_ptr<Message> m, bool sequence = true,  bool usemyfd = true)
     {
         const specpaxos::Configuration *cfg = configurations[src];
         ASSERT(cfg != NULL);
@@ -137,15 +137,15 @@ public:
         ASSERT(kv != replicaAddresses[cfg].end());
 
         if (sequence) {
-            SendPtrMessageInternal(src, kv->second, m, false, queuedMsgId++);
+            SendPtrMessageInternal(src, kv->second, m, false, queuedMsgId++, usemyfd);
         } else {
-            SendPtrMessageInternal(src, kv->second, m, false);
+            SendPtrMessageInternal(src, kv->second, m, false, 0, usemyfd);
         }
         return true;
     }
 
     virtual bool
-    SendPtrMessageToAll(TransportReceiver *src, const std::shared_ptr<Message> m, bool sequence)
+    SendPtrMessageToAll(TransportReceiver *src, const std::shared_ptr<Message> m, bool sequence = true,  bool usemyfd = false)
     {
         const specpaxos::Configuration *cfg = configurations[src];
         ASSERT(cfg != NULL);
@@ -157,7 +157,7 @@ public:
         auto kv = multicastAddresses.find(cfg);
         if (kv != multicastAddresses.end()) {
             // Send by multicast if we can
-            SendPtrMessageInternal(src, kv->second, m, true);
+            SendPtrMessageInternal(src, kv->second, m, true, usemyfd);
         } else {
             // ...or by individual messages to every replica if not
             const ADDR &srcAddr = dynamic_cast<const ADDR &>(src->GetAddress());
@@ -168,7 +168,7 @@ public:
                     continue;
                 }
                 cnt++;
-                SendPtrMessageInternal(src, kv2.second, m, false, seq);
+                SendPtrMessageInternal(src, kv2.second, m, false, seq, usemyfd);
             }
             if (sequence)
                 queuedMsgId += cnt;
@@ -185,7 +185,7 @@ protected:
                                      const ADDR &dst,
                                      const std::shared_ptr<Message> m,
                                      bool multicast = false,
-                                     uint64_t queuedMsgId = 0) = 0;
+                                     uint64_t queuedMsgId = 0,  bool usemyfd =false) = 0;
     virtual ADDR LookupAddress(const specpaxos::Configuration &cfg,
                                int replicaIdx) = 0;
     virtual const ADDR *

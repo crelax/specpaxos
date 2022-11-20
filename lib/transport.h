@@ -82,12 +82,12 @@ public:
 
 
     virtual bool SendPtrMessage(TransportReceiver *src, const TransportAddress &dst,
-                                const std::shared_ptr<Message> m, bool sequence = true) = 0;
+                                const std::shared_ptr<Message> m, bool sequence = true, bool usemyfd = false) = 0;
 
     virtual bool SendPtrMessageToReplica(TransportReceiver *src, int replicaIdx, const std::shared_ptr<Message> m,
-                                         bool sequence = true) = 0;
+                                         bool sequence = true, bool usemyfd= false) = 0;
 
-    virtual bool SendPtrMessageToAll(TransportReceiver *src, const std::shared_ptr<Message> m, bool sequence = true) = 0;
+    virtual bool SendPtrMessageToAll(TransportReceiver *src, const std::shared_ptr<Message> m, bool sequence = true, bool usemyfd = false) = 0;
 };
 
 class Timeout
