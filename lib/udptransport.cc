@@ -249,6 +249,9 @@ UDPTransport::worker(int idx, int cpu, moodycamel::ProducerToken &token, moodyca
                 break;
             }
 
+            if(counter_enable)
+                counters[idx][taskq.size_approx()] ++;
+
             // Serialize
             type = t->m->GetTypeName();
             t->m->SerializeToString(&data);
@@ -302,17 +305,17 @@ UDPTransport::worker(int idx, int cpu, moodycamel::ProducerToken &token, moodyca
 //            }
 
             auto sin = t->dst->addr;
-            int sendfd = t->fd <=0? senderfds[idx] : t->fd;
+            int sendfd =  t->fd<=0? senderfds[0] : t->fd;
 
-            bool follow_order = t->seqId != 0;
-            if (follow_order) {
-                uint64_t x;
-                do {
-                    x = nowSendId.load(std::memory_order_acquire);
-                } while (x < t->seqId);
-
-//                Notice("send since atomic int= %" PRIx64 ", seqId =%" PRIx64 ".", x, t->seqId);
-            }
+//            bool follow_order = t->seqId != 0;
+//            if (follow_order) {
+//                uint64_t x;
+//                do {
+//                    x = nowSendId.load(std::memory_order_acquire);
+//                } while (x < t->seqId);
+//
+////                Notice("send since atomic int= %" PRIx64 ", seqId =%" PRIx64 ".", x, t->seqId);
+//            }
 
             // do send
             if (msgLen <= MAX_UDP_MESSAGE_SIZE) {
@@ -364,8 +367,8 @@ UDPTransport::worker(int idx, int cpu, moodycamel::ProducerToken &token, moodyca
             }
 
             out:
-            if (follow_order)
-                nowSendId.fetch_add(1, std::memory_order_release);
+//            if (follow_order)
+//                nowSendId.fetch_add(1, std::memory_order_release);
             delete t;
             t = nullptr;
         }
@@ -374,14 +377,14 @@ UDPTransport::worker(int idx, int cpu, moodycamel::ProducerToken &token, moodyca
 }
 
 UDPTransport::UDPTransport(double dropRate, double reorderRate,
-                           int dscp, int tnum, event_base *evbase)
+                           int dscp, int sendcpu, event_base *evbase, bool counter_enabled)
         : dropRate(dropRate), reorderRate(reorderRate),
-          dscp(dscp), sendtnum(tnum) {
+          dscp(dscp), sendcpu(sendcpu), counter_enable(counter_enabled) {
 
     lastTimerId = 0;
     lastFragMsgId = 0;
 
-    lastcpu = 0;
+//    lastcpu = 0;
     cpunum = std::thread::hardware_concurrency();
     avoid_cpu.insert({0,5});
 
@@ -418,8 +421,15 @@ UDPTransport::UDPTransport(double dropRate, double reorderRate,
         event_add(x, NULL);
     }
 
-    sendtnum = std::max(1, std::min(cpunum - 2, sendtnum));
+
+
+//    sendtnum = std::max(1, std::min(cpunum - 2, sendtnum));
+
+    sendtnum = 1;
     Notice("arranging %d threads to send packages", sendtnum);
+
+    for (int i = 0; i < sendtnum; i++)
+        counters.emplace_back(std::map<size_t, int>());
 
     token = moodycamel::ProducerToken(taskq);
     int cpu = 0;
@@ -1030,11 +1040,36 @@ UDPTransport::SendPtrMessageInternal(TransportReceiver *src,
                                   uint64_t queuedMsgId, bool usemyfd) {
     int fd = usemyfd ? fds[src] : -1;
 
-    TasktoSend* t = new TasktoSend{fd, dst.clone(), 0, queuedMsgId, m};
+    TasktoSend* t = new TasktoSend{fd, dst.clone(), 0, 0, m};
     if (m->ByteSizeLong() > MAX_UDP_MESSAGE_SIZE - 1000) {
         t->msgId = ++lastFragMsgId;
     }
     taskq.enqueue(token, t);
+}
+
+void DumpCounters(const std::map<size_t, int>& ctr) {
+    if (ctr.size() == 0) {
+        Notice(" Empty ");
+        return;
+    }
+
+    using PII = pair<size_t, int>;
+    std::vector<PII> pairs;
+    pairs.reserve(ctr.size());
+
+    for (auto [k, v]: ctr) {
+        pairs.push_back(std::make_pair(k, v));
+    }
+    auto greater = [](const PII& a, const PII&b) ->bool {
+        if (a.second == b.second)
+            return a.first < b.first;
+        return a.second > b.second;
+    };
+    std::sort(pairs.begin(), pairs.end(), greater);
+    string str ="";
+    for (int i = 0; i < std::min(1000, int(pairs.size())); i++)
+        str += std::to_string(pairs[i].first) + ": " + std::to_string(pairs[i].second) + "\t ";
+    Notice(" %s", str.c_str());
 }
 
 void UDPTransport::JoinWorkers() {
@@ -1042,5 +1077,17 @@ void UDPTransport::JoinWorkers() {
         taskq.enqueue(token, nullptr);
     for (auto& t : pool) {
         t.join();
+    }
+
+    if (!counter_enable)
+        return;
+
+    for (int i = 0; i < counters.size(); i++) {
+        string str = "++++++++++++++++ queue idx " + std::to_string(i) + "+++++++++++queue length: ";
+//        for (auto& [k, v]: c ) {
+//            str += std::to_string(k) + ": "+ std::to_string(v) + ";\t ";
+//        }
+        DumpCounters(counters[i]);
+        Notice("%s", str.c_str());
     }
 }

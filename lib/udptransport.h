@@ -85,7 +85,7 @@ class UDPTransport : public TransportCommon<UDPTransportAddress>
 {
 public:
     UDPTransport(double dropRate = 0.0, double reorderRate = 0.0,
-                 int dscp = 0, int sendtnum = 1, event_base *evbase = nullptr);
+                 int dscp = 0, int sendcpu = 1, event_base *evbase = nullptr, bool counter_enabled =false);
     virtual ~UDPTransport();
     void Register(TransportReceiver *receiver,
                   const specpaxos::Configuration &config,
@@ -94,6 +94,10 @@ public:
     int Timer(uint64_t ms, timer_callback_t cb);
     bool CancelTimer(int id);
     void CancelAllTimers();
+
+    std::vector<std::map<size_t, int>> counters{};
+
+    const bool counter_enable;
     
 private:
 
@@ -134,7 +138,7 @@ private:
     int lastTimerId;
     std::map<int, UDPTransportTimerInfo *> timers;
     uint64_t lastFragMsgId;
-    int lastcpu;
+    int sendcpu;
     int cpunum;
     int sendtnum;
     struct UDPTransportFragInfo

@@ -45,7 +45,7 @@
 static void
 Usage(const char *progName)
 {
-    fprintf(stderr, "usage: %s -c conf-file [-R] -i replica-index -m unreplicated|vr|fastpaxos|spec [-b batch-size] [-d packet-drop-rate] [-r packet-reorder-rate] [-q dscp]\n",
+    fprintf(stderr, "usage: %s -c conf-file [-R] -i replica-index -m unreplicated|vr|fastpaxos|spec [-b batch-size] [-C 0/1 counter enabled] [-d packet-drop-rate] [-r packet-reorder-rate] [-q dscp]\n",
             progName);
     exit(1);
 }
@@ -63,6 +63,7 @@ main(int argc, char **argv)
     bool recover = false;
     int sendtnum = 1;
     int bindcpu = 0;
+    int counter = 0;
 
     specpaxos::AppReplica *nullApp = new specpaxos::AppReplica();
 
@@ -77,7 +78,7 @@ main(int argc, char **argv)
 
     // Parse arguments
     int opt;
-    while ((opt = getopt(argc, argv, "b:c:d:i:m:q:r:R:p:t:p")) != -1) {
+    while ((opt = getopt(argc, argv, "b:c:d:i:m:q:r:R:p:t:p:C:")) != -1) {
         switch (opt) {
             case 'b':
             {
@@ -119,6 +120,19 @@ main(int argc, char **argv)
                     ((dropRate < 0) || (dropRate >= 1))) {
                     fprintf(stderr,
                             "option -d requires a numeric arg between 0 and 1\n");
+                    Usage(argv[0]);
+                }
+                break;
+            }
+
+            case 'C':
+            {
+                char *strtolPtr;
+                counter = strtoul(optarg, &strtolPtr, 10);
+                if ((*optarg == '\0') || (*strtolPtr != '\0') || (counter != 0 && counter != 1))
+                {
+                    fprintf(stderr,
+                            "option -C requires a 0/1 arg\n");
                     Usage(argv[0]);
                 }
                 break;
@@ -242,7 +256,8 @@ main(int argc, char **argv)
         pthread_setaffinity_np(pthread_self(), sizeof(m), &m);
         Notice("event dispatch on cpu %d", sched_getcpu());
 //    }
-    UDPTransport transport(dropRate, reorderRate, dscp, sendtnum);
+    //  bind cpu: the cpu to send pkgs.
+    UDPTransport transport(dropRate, reorderRate, dscp, bindcpu, nullptr, counter == 1);
     specpaxos::Replica *replica;
     switch (proto) {
         case PROTO_UNREPLICATED:

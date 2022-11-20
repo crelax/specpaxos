@@ -114,11 +114,9 @@ public:
                                 const std::shared_ptr<Message> m, bool sequence = true, bool usemyfd= false)
     {
         const ADDR &dstAddr = dynamic_cast<const ADDR &>(dst);
-        if (sequence) {
-            SendPtrMessageInternal(src, dstAddr, m, false, queuedMsgId++, usemyfd);
-        } else {
-            SendPtrMessageInternal(src, dstAddr, m, false, 0, usemyfd);
-        }
+
+        SendPtrMessageInternal(src, dstAddr, m, false, 0, usemyfd);
+
         return true;
     }
 
@@ -136,11 +134,9 @@ public:
         auto kv = replicaAddresses[cfg].find(replicaIdx);
         ASSERT(kv != replicaAddresses[cfg].end());
 
-        if (sequence) {
-            SendPtrMessageInternal(src, kv->second, m, false, queuedMsgId++, usemyfd);
-        } else {
-            SendPtrMessageInternal(src, kv->second, m, false, 0, usemyfd);
-        }
+
+        SendPtrMessageInternal(src, kv->second, m, false, 0, usemyfd);
+
         return true;
     }
 
@@ -154,25 +150,25 @@ public:
             LookupAddresses();
         }
 
-        auto kv = multicastAddresses.find(cfg);
-        if (kv != multicastAddresses.end()) {
-            // Send by multicast if we can
-            SendPtrMessageInternal(src, kv->second, m, true, usemyfd);
-        } else {
+//        auto kv = multicastAddresses.find(cfg);
+//        if (kv != multicastAddresses.end()) {
+//            // Send by multicast if we can
+//            SendPtrMessageInternal(src, kv->second, m, true, usemyfd);
+//        } else {
             // ...or by individual messages to every replica if not
             const ADDR &srcAddr = dynamic_cast<const ADDR &>(src->GetAddress());
-            auto seq = sequence ? queuedMsgId : 0;
+//            auto seq = sequence ? queuedMsgId : 0;
             int cnt = 0;
             for (auto & kv2 : replicaAddresses[cfg]) {
                 if (srcAddr == kv2.second) {
                     continue;
                 }
                 cnt++;
-                SendPtrMessageInternal(src, kv2.second, m, false, seq, usemyfd);
+                SendPtrMessageInternal(src, kv2.second, m, false, 0, usemyfd);
             }
-            if (sequence)
-                queuedMsgId += cnt;
-        }
+//            if (sequence)
+//                queuedMsgId += cnt;
+//        }
         return true;
     }
 
